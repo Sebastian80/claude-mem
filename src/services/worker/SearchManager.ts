@@ -139,14 +139,34 @@ export class SearchManager {
     if (!query) {
       logger.debug('SEARCH', 'Filter-only query (no query text), using direct SQLite filtering', { enablesDateFilters: true });
       const obsOptions = { ...options, type: obs_type, concepts, files };
-      if (searchObservations) {
-        observations = this.sessionSearch.searchObservations(undefined, obsOptions);
-      }
-      if (searchSessions) {
-        sessions = this.sessionSearch.searchSessions(undefined, options);
-      }
-      if (searchPrompts) {
-        prompts = this.sessionSearch.searchUserPrompts(undefined, options);
+
+      // Check if we have any filters - if not, return recent results
+      const hasFilters = Object.keys(options).some(k =>
+        !['limit', 'offset', 'orderBy', 'format'].includes(k) && options[k] !== undefined
+      ) || obs_type || concepts || files;
+
+      if (!hasFilters) {
+        // No query and no filters - return recent results instead of throwing
+        logger.debug('SEARCH', 'No query or filters provided, returning recent results');
+        if (searchObservations) {
+          observations = this.sessionSearch.getRecentObservations(options.limit || 20);
+        }
+        if (searchSessions) {
+          sessions = this.sessionSearch.getRecentSessions(options.limit || 20);
+        }
+        if (searchPrompts) {
+          prompts = this.sessionSearch.getRecentPrompts(options.limit || 20);
+        }
+      } else {
+        if (searchObservations) {
+          observations = this.sessionSearch.searchObservations(undefined, obsOptions);
+        }
+        if (searchSessions) {
+          sessions = this.sessionSearch.searchSessions(undefined, options);
+        }
+        if (searchPrompts) {
+          prompts = this.sessionSearch.searchUserPrompts(undefined, options);
+        }
       }
     }
     // PATH 2: CHROMA SEMANTIC SEARCH (query text + Chroma available)

@@ -582,4 +582,43 @@ export class SessionSearch {
   close(): void {
     this.db.close();
   }
+
+  /**
+   * Get recent observations (no filters)
+   */
+  getRecentObservations(limit: number = 20): ObservationSearchResult[] {
+    const sql = `
+      SELECT o.*, o.discovery_tokens
+      FROM observations o
+      ORDER BY o.created_at_epoch DESC
+      LIMIT ?
+    `;
+    return this.db.prepare(sql).all(limit) as ObservationSearchResult[];
+  }
+
+  /**
+   * Get recent session summaries (no filters)
+   */
+  getRecentSessions(limit: number = 20): SessionSummarySearchResult[] {
+    const sql = `
+      SELECT s.*, s.discovery_tokens
+      FROM session_summaries s
+      ORDER BY s.created_at_epoch DESC
+      LIMIT ?
+    `;
+    return this.db.prepare(sql).all(limit) as SessionSummarySearchResult[];
+  }
+
+  /**
+   * Get recent user prompts (no filters)
+   */
+  getRecentPrompts(limit: number = 20): UserPromptSearchResult[] {
+    const sql = `
+      SELECT up.*
+      FROM user_prompts up
+      ORDER BY up.created_at_epoch DESC
+      LIMIT ?
+    `;
+    return this.db.prepare(sql).all(limit) as UserPromptSearchResult[];
+  }
 }
