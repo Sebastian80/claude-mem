@@ -49,6 +49,9 @@ export class SDKAgent {
     // Get model ID and disallowed tools
     const modelId = this.getModelId();
     // Memory agent is OBSERVER ONLY - no tools allowed
+    // This list blocks tools to prevent autonomous behavior if the model misinterprets
+    // its role (e.g., when receiving compaction summaries with action descriptions)
+    // See: docs/reports/2026-01-09-autonomous-sdk-execution.md
     const disallowedTools = [
       'Bash',           // Prevent infinite loops
       'Read',           // No file reading
@@ -61,7 +64,15 @@ export class SDKAgent {
       'Task',           // No spawning sub-agents
       'NotebookEdit',   // No notebook editing
       'AskUserQuestion',// No asking questions
-      'TodoWrite'       // No todo management
+      'TodoWrite',      // No todo management
+      // Planning and task management tools (added 2026-01-09)
+      // These were used by SDK when it misinterpreted compaction summaries as work instructions
+      'EnterPlanMode',  // No planning mode entry
+      'ExitPlanMode',   // No planning mode exit
+      'TaskOutput',     // No background task output retrieval
+      'Skill',          // No skill/slash command invocation
+      'KillShell',      // No shell management
+      'LSP',            // No language server operations
     ];
 
     // Create message generator (event-driven)

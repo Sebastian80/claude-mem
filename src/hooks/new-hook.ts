@@ -4,6 +4,17 @@ import { ensureWorkerRunning, getWorkerPort } from '../shared/worker-utils.js';
 import { getProjectName } from '../utils/project-name.js';
 import { logger } from '../utils/logger.js';
 
+/**
+ * Detect if a prompt is a compaction/continuation summary from Claude Code context overflow.
+ * These summaries contain narrative descriptions of previous work and can cause the SDK
+ * agent to misinterpret them as instructions to execute, leading to autonomous behavior.
+ */
+const COMPACTION_PATTERN = /^This session is being continued from a previous conversation/;
+
+function isCompactionSummary(prompt: string): boolean {
+  return COMPACTION_PATTERN.test(prompt.trim());
+}
+
 export interface UserPromptSubmitInput {
   session_id: string;
   cwd: string;
@@ -56,6 +67,17 @@ async function newHook(input?: UserPromptSubmitInput): Promise<void> {
   // Check if prompt was entirely private (worker performs privacy check)
   if (initResult.skipped && initResult.reason === 'private') {
     logger.info('HOOK', `INIT_COMPLETE | sessionDbId=${sessionDbId} | promptNumber=${promptNumber} | skipped=true | reason=private`, {
+      sessionId: sessionDbId
+    });
+    console.log(STANDARD_HOOK_RESPONSE);
+    return;
+  }
+
+  // Check if prompt is a compaction/continuation summary from context overflow
+  // These contain narrative descriptions that can trigger autonomous SDK behavior
+  // Skip SDK processing entirely - the summary describes work, not a request to observe
+  if (isCompactionSummary(prompt)) {
+    logger.info('HOOK', `INIT_COMPLETE | sessionDbId=${sessionDbId} | promptNumber=${promptNumber} | skipped=true | reason=compaction`, {
       sessionId: sessionDbId
     });
     console.log(STANDARD_HOOK_RESPONSE);
