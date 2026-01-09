@@ -11,8 +11,19 @@ import { logger } from '../utils/logger.js';
  */
 const COMPACTION_PATTERN = /^This session is being continued from a previous conversation/;
 
+/**
+ * Detect if a prompt is an SDK agent warmup/exploration request.
+ * The SDK agent sometimes autonomously initiates repository exploration on session start,
+ * which can trigger infinite API call loops when passed back through the hook system.
+ */
+const WARMUP_PATTERN = /^I will start by exploring the repository to understand/;
+
 function isCompactionSummary(prompt: string): boolean {
   return COMPACTION_PATTERN.test(prompt.trim());
+}
+
+function isWarmupExploration(prompt: string): boolean {
+  return WARMUP_PATTERN.test(prompt.trim());
 }
 
 export interface UserPromptSubmitInput {
@@ -78,6 +89,16 @@ async function newHook(input?: UserPromptSubmitInput): Promise<void> {
   // Skip SDK processing entirely - the summary describes work, not a request to observe
   if (isCompactionSummary(prompt)) {
     logger.info('HOOK', `INIT_COMPLETE | sessionDbId=${sessionDbId} | promptNumber=${promptNumber} | skipped=true | reason=compaction`, {
+      sessionId: sessionDbId
+    });
+    console.log(STANDARD_HOOK_RESPONSE);
+    return;
+  }
+
+  // Check if prompt is an SDK agent warmup/exploration request
+  // These are autonomously generated and cause infinite loops if passed back to SDK
+  if (isWarmupExploration(prompt)) {
+    logger.info('HOOK', `INIT_COMPLETE | sessionDbId=${sessionDbId} | promptNumber=${promptNumber} | skipped=true | reason=warmup`, {
       sessionId: sessionDbId
     });
     console.log(STANDARD_HOOK_RESPONSE);

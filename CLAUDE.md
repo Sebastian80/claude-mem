@@ -83,3 +83,10 @@ This architecture preserves the open-source nature of the project while enabling
 ## Important
 
 No need to edit the changelog ever, it's generated automatically.
+
+## Development Workflow
+
+1. Fix source code first, never directly modify the installed plugin
+2. Bump version in `package.json` and `plugin/.claude-plugin/plugin.json` before building
+3. Run `npm run build-and-sync` to build and deploy
+4. Commit and push changes

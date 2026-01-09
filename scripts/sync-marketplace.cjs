@@ -57,11 +57,12 @@ function getPluginVersion() {
   }
 }
 
-// Normal rsync for main branch or fresh install
+// Normal sync for main branch or fresh install (using cp for portability)
 console.log('Syncing to marketplace...');
 try {
+  // Use cp instead of rsync for environments without rsync
   execSync(
-    'rsync -av --delete --exclude=.git --exclude=/.mcp.json ./ ~/.claude/plugins/marketplaces/jillvernus/',
+    'cp -r plugin/* ~/.claude/plugins/marketplaces/jillvernus/',
     { stdio: 'inherit' }
   );
 
@@ -77,7 +78,7 @@ try {
 
   console.log(`Syncing to cache folder (version ${version})...`);
   execSync(
-    `rsync -av --delete --exclude=.git plugin/ "${CACHE_VERSION_PATH}/"`,
+    `mkdir -p "${CACHE_VERSION_PATH}" && cp -r plugin/* "${CACHE_VERSION_PATH}/"`,
     { stdio: 'inherit' }
   );
 
