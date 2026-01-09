@@ -13,6 +13,7 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #1239 | 2:22 PM | 🔵 | Plugin Runtime Package Verification | ~106 |
 | #1122 | 12:48 AM | 🔵 | Read Plugin Package Manifest | ~71 |
 | #1123 | " | ✅ | Bump Plugin Package Version | ~102 |
 | #1110 | 12:43 AM | 🔵 | Read Plugin Manifest | ~123 |
