@@ -8,6 +8,9 @@ import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js'
 import { ensureWorkerRunning, getWorkerPort } from '../../shared/worker-utils.js';
 import { getProjectName } from '../../utils/project-name.js';
 import { logger } from '../../utils/logger.js';
+import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
+import { homedir } from 'os';
+import path from 'path';
 
 /**
  * Detect if a prompt is a compaction/continuation summary from Claude Code context overflow.
@@ -88,7 +91,12 @@ export const sessionInitHandler: EventHandler = {
     // Check if prompt is a compaction/continuation summary from context overflow
     // These contain narrative descriptions that can trigger autonomous SDK behavior
     // Skip SDK processing entirely - the summary describes work, not a request to observe
-    if (isCompactionSummary(prompt)) {
+    // Can be disabled via CLAUDE_MEM_FILTER_COMPACTION_PROMPTS setting
+    const settingsPath = path.join(homedir(), '.claude-mem', 'settings.json');
+    const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
+    const filterEnabled = settings.CLAUDE_MEM_FILTER_COMPACTION_PROMPTS === 'true';
+
+    if (filterEnabled && isCompactionSummary(prompt)) {
       logger.info('HOOK', `INIT_COMPLETE | sessionDbId=${sessionDbId} | promptNumber=${promptNumber} | skipped=true | reason=compaction`, {
         sessionId: sessionDbId
       });
@@ -97,7 +105,7 @@ export const sessionInitHandler: EventHandler = {
 
     // Check if prompt is an SDK agent warmup/exploration request
     // These are autonomously generated and cause infinite loops if passed back to SDK
-    if (isWarmupExploration(prompt)) {
+    if (filterEnabled && isWarmupExploration(prompt)) {
       logger.info('HOOK', `INIT_COMPLETE | sessionDbId=${sessionDbId} | promptNumber=${promptNumber} | skipped=true | reason=warmup`, {
         sessionId: sessionDbId
       });

@@ -3,7 +3,7 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.4-jv.1`
+**Current Fork Version**: `9.0.4-jv.2`
 **Upstream Base**: `v9.0.4` (commit `92c4d245`)
 **Last Merge**: 2026-01-11
 
@@ -20,7 +20,7 @@ Categories are ordered by severity (critical fixes first).
 | 3 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 |
 | 4 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 |
 | 5 | B: Observation Batching | Cost reduction - batch API calls | 5 |
-| 6 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 2 |
+| 6 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 |
 | 7 | G: Fork Configuration | Identity - version and marketplace config | 4 |
 
 ### Files by Category
@@ -35,7 +35,7 @@ Categories are ordered by severity (critical fixes first).
 | `src/services/worker/SearchManager.ts` | | | + | | | | |
 | `src/services/sqlite/SessionSearch.ts` | | | + | | | | |
 | `src/servers/mcp-server.ts` | | | | + | | | |
-| `src/shared/SettingsDefaultsManager.ts` | | | | | + | | |
+| `src/shared/SettingsDefaultsManager.ts` | | | | | + | + | |
 | `src/sdk/prompts.ts` | | | | | + | | |
 | `src/services/queue/SessionQueueProcessor.ts` | | | | | + | | |
 | `src/cli/handlers/session-init.ts` | | | | | | + | |
@@ -314,10 +314,26 @@ grep -A15 "name: 'search'" src/servers/mcp-server.ts
 **Files**:
 | File | Change |
 |------|--------|
-| `src/cli/handlers/session-init.ts:12-32,88-105` | Detection patterns and early exit |
-| `src/services/worker/SDKAgent.ts` | Extended disallowedTools (18 tools) |
+| `src/cli/handlers/session-init.ts:12-32,88-113` | Detection patterns and early exit |
+| `src/services/worker/SDKAgent.ts` | Extended disallowedTools (16 tools) |
+| `src/shared/SettingsDefaultsManager.ts` | `CLAUDE_MEM_FILTER_COMPACTION_PROMPTS` setting |
 
-**Note**: May be caused by proxy models not following instructions. Needs verification.
+**Configuration** (`~/.claude-mem/settings.json`):
+```json
+{
+  "CLAUDE_MEM_FILTER_COMPACTION_PROMPTS": "true"
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `CLAUDE_MEM_FILTER_COMPACTION_PROMPTS` | `"true"` | Filter compaction/warmup prompts from SDK processing |
+
+**Patterns filtered**:
+- `COMPACTION_PATTERN`: `^This session is being continued from a previous conversation`
+- `WARMUP_PATTERN`: `^I will start by exploring the repository to understand`
+
+**Note**: Set to `"false"` if you want compaction summaries to be processed by the SDK agent. This may be intended upstream behavior that we were incorrectly blocking.
 
 ---
 

@@ -17,4 +17,11 @@
 |----|------|---|-------|------|
 | #1501 | 10:41 PM | 🔵 | Fork Changes Documented in LOCAL-FORK-CHANGES-REPORT.md | ~518 |
 | #1146 | 10:58 AM | 🔵 | Root Cause: ensureWorkerRunning Polling Pattern | ~336 |
+
+### Jan 12, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2239 | 5:29 PM | 🟣 | Settings Interface Extended with SDK Resume Configuration Fields | ~417 |
+| #2240 | " | 🟣 | Default Values Added for SDK Resume Configuration Settings | ~477 |
 </claude-mem-context>

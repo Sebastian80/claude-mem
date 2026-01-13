@@ -53,6 +53,8 @@ export interface SettingsDefaults {
   // Batching Configuration
   CLAUDE_MEM_BATCHING_ENABLED: string;       // 'true' | 'false' - enable batched observation processing
   CLAUDE_MEM_BATCH_MAX_SIZE: string;         // max observations before forced flush (default: 20)
+  // Prompt Filtering
+  CLAUDE_MEM_FILTER_COMPACTION_PROMPTS: string;  // 'true' | 'false' - filter compaction/warmup prompts from SDK
 }
 
 export class SettingsDefaultsManager {
@@ -100,6 +102,8 @@ export class SettingsDefaultsManager {
     // Batching Configuration
     CLAUDE_MEM_BATCHING_ENABLED: 'false',       // Off by default until tested
     CLAUDE_MEM_BATCH_MAX_SIZE: '20',            // Max observations before forced flush
+    // Prompt Filtering
+    CLAUDE_MEM_FILTER_COMPACTION_PROMPTS: 'true',  // On by default - filter compaction/warmup prompts
   };
 
   /**
