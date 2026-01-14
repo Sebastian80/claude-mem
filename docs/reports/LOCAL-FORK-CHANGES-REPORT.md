@@ -3,9 +3,9 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.4-jv.2`
-**Upstream Base**: `v9.0.4` (commit `92c4d245`)
-**Last Merge**: 2026-01-11
+**Current Fork Version**: `9.0.5-jv.1`
+**Upstream Base**: `v9.0.5` (commit `3d40b45f`)
+**Last Merge**: 2026-01-14
 
 ---
 

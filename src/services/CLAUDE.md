@@ -12,4 +12,11 @@
 | #928 | 2:54 PM | 🔵 | killOrphanSubprocesses Usage Locations Identified | ~254 |
 | #930 | " | 🔵 | Worker Service Orchestrates Subprocess Cleanup | ~263 |
 | #786 | 12:20 AM | 🔄 | Wire Cleanup Callback in WorkerService | ~182 |
+
+### Jan 12, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #2241 | 5:32 PM | 🟣 | ActiveSession Interface Extended with needsFullInit Flag | ~429 |
+| #2217 | 4:35 PM | 🔵 | Worker Type Definitions and Session State | ~435 |
 </claude-mem-context>
