@@ -13,15 +13,15 @@ Categories are ordered by severity (critical fixes first).
 
 ### Categories by Severity
 
-| Priority | Category | Purpose | Files |
-|----------|----------|---------|-------|
-| 1 | C: Zombie Process Cleanup | Memory leak fix - orphan SDK processes | 3 |
-| 2 | A: Dynamic Path Resolution | Crash fix - hardcoded `thedotmack` paths | 2 |
-| 3 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 |
-| 4 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 |
-| 5 | B: Observation Batching | Cost reduction - batch API calls | 5 |
-| 6 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 |
-| 7 | G: Fork Configuration | Identity - version and marketplace config | 4 |
+| Priority | Category | Purpose | Files | Status |
+|----------|----------|---------|-------|--------|
+| 1 | C: Zombie Process Cleanup | Memory leak fix - orphan SDK processes | 3 | Active |
+| 2 | A: Dynamic Path Resolution | Crash fix - hardcoded `thedotmack` paths | 2 | Active |
+| 3 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
+| 4 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
+| 5 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
+| 6 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
+| 7 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
 
 ### Files by Category
 
@@ -273,7 +273,9 @@ grep -A15 "name: 'search'" src/servers/mcp-server.ts
 
 ---
 
-### Category B: Observation Batching (Priority 5)
+### Category B: Observation Batching (Priority 5) ⏸️ ON HOLD
+
+> **Status**: This feature is on hold. The code exists but is not actively maintained during upstream merges.
 
 **Problem**: Each observation triggers separate API call, expensive at scale.
 
@@ -305,7 +307,9 @@ grep -A15 "name: 'search'" src/servers/mcp-server.ts
 
 ---
 
-### Category F: Autonomous Execution Prevention (Priority 6)
+### Category F: Autonomous Execution Prevention (Priority 6) ⏸️ ON HOLD
+
+> **Status**: This feature is on hold. The code exists but is not actively maintained during upstream merges.
 
 **Problem**: SDK agent misinterprets compaction summaries as work instructions.
 
