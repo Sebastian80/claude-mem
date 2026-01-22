@@ -132,6 +132,17 @@ export class GeminiAgent {
         throw new Error('Gemini API key not configured. Set CLAUDE_MEM_GEMINI_API_KEY in settings or GEMINI_API_KEY environment variable.');
       }
 
+      // CRITICAL: Ensure memorySessionId is set for non-Claude providers
+      // Claude SDK captures this from its response, but Gemini/OpenRouter need to generate it
+      if (!session.memorySessionId) {
+        const generatedId = crypto.randomUUID();
+        session.memorySessionId = generatedId;
+        this.dbManager.getSessionStore().updateMemorySessionId(session.sessionDbId, generatedId);
+        logger.info('SDK', `Generated memorySessionId for Gemini session | sessionDbId=${session.sessionDbId} | memorySessionId=${generatedId}`, {
+          sessionId: session.sessionDbId
+        });
+      }
+
       // Load active mode
       const mode = ModeManager.getInstance().getActiveMode();
 

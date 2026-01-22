@@ -91,6 +91,17 @@ export class OpenRouterAgent {
         throw new Error('OpenRouter API key not configured. Set CLAUDE_MEM_OPENROUTER_API_KEY in settings or OPENROUTER_API_KEY environment variable.');
       }
 
+      // CRITICAL: Ensure memorySessionId is set for non-Claude providers
+      // Claude SDK captures this from its response, but Gemini/OpenRouter need to generate it
+      if (!session.memorySessionId) {
+        const generatedId = crypto.randomUUID();
+        session.memorySessionId = generatedId;
+        this.dbManager.getSessionStore().updateMemorySessionId(session.sessionDbId, generatedId);
+        logger.info('SDK', `Generated memorySessionId for OpenRouter session | sessionDbId=${session.sessionDbId} | memorySessionId=${generatedId}`, {
+          sessionId: session.sessionDbId
+        });
+      }
+
       // Load active mode
       const mode = ModeManager.getInstance().getActiveMode();
 

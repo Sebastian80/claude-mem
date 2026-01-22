@@ -3,7 +3,7 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.5-jv.8`
+**Current Fork Version**: `9.0.5-jv.9`
 **Upstream Base**: `v9.0.5` (commit `3d40b45f`)
 **Last Merge**: 2026-01-14
 **Recent Updates**:
@@ -13,6 +13,7 @@ Categories are ordered by severity (critical fixes first).
 - `9.0.5-jv.6`: Fixed smart-install.js to update existing aliases on plugin upgrade
 - `9.0.5-jv.7`: Fixed useSettings.ts missing base URL fields (CLAUDE_MEM_GEMINI_BASE_URL, CLAUDE_MEM_OPENROUTER_BASE_URL)
 - `9.0.5-jv.8`: Fixed folder CLAUDE.md generation - disabled by default, no empty files created
+- `9.0.5-jv.9`: Fixed Gemini/OpenRouter memorySessionId bug - generate UUID for non-Claude providers
 
 ---
 
@@ -24,50 +25,51 @@ Categories are ordered by severity (critical fixes first).
 |----------|----------|---------|-------|--------|
 | 1 | C: Zombie Process Cleanup | Memory leak fix - orphan SDK processes | 3 | Active |
 | 2 | A: Dynamic Path Resolution | Crash fix - hardcoded `thedotmack` paths | 2 | Active |
-| 3 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
-| 4 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
-| 5 | H: Custom API Endpoints | Feature - configurable Gemini/OpenRouter endpoints | 9 | Active |
-| 6 | I: Folder CLAUDE.md Optimization | Fix - disable by default, no empty files | 3 | Active |
-| 7 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
-| 8 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
-| 9 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
+| 3 | J: Gemini/OpenRouter memorySessionId | Bugfix - non-Claude providers crash without UUID | 2 | Active |
+| 4 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
+| 5 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
+| 6 | H: Custom API Endpoints | Feature - configurable Gemini/OpenRouter endpoints | 9 | Active |
+| 7 | I: Folder CLAUDE.md Optimization | Fix - disable by default, no empty files | 3 | Active |
+| 8 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
+| 9 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
+| 10 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
 
 ### Files by Category
 
-| File | C | A | E | D | H | I | B | F | G |
-|------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `src/services/worker/SDKAgent.ts` | + | | | | | | + | + | |
-| `src/services/worker/SessionManager.ts` | + | | | | | | + | | |
-| `src/services/worker-service.ts` | + | | | | | | | | |
-| `src/shared/worker-utils.ts` | | + | | | | | | | |
-| `src/services/infrastructure/HealthMonitor.ts` | | + | | | | | | | |
-| `plugin/scripts/worker-cli.js` | | + | | | | | | | |
-| `plugin/scripts/smart-install.js` | | + | | | | | | | |
-| `src/services/worker/BranchManager.ts` | | + | | | | | | | |
-| `src/services/integrations/CursorHooksInstaller.ts` | | + | | | | | | | |
-| `src/services/context/ContextBuilder.ts` | | + | | | | | | | |
-| `src/services/sync/ChromaSync.ts` | | + | | | | | | | |
-| `src/services/worker/SearchManager.ts` | | | + | | | | | | |
-| `src/services/sqlite/SessionSearch.ts` | | | + | | | | | | |
-| `src/servers/mcp-server.ts` | | | | + | | | | | |
-| `src/shared/SettingsDefaultsManager.ts` | | | | | + | + | + | + | |
-| `src/services/worker/GeminiAgent.ts` | | | | | + | | | | |
-| `src/services/worker/OpenRouterAgent.ts` | | | | | + | | | | |
-| `src/services/worker/http/routes/SettingsRoutes.ts` | | | | | + | | | | |
-| `src/services/worker/http/middleware.ts` | | | | | + | | | | |
-| `src/ui/viewer/types.ts` | | | | | + | | | | |
-| `src/ui/viewer/constants/settings.ts` | | | | | + | | | | |
-| `src/ui/viewer/hooks/useSettings.ts` | | | | | + | | | | |
-| `src/ui/viewer/components/ContextSettingsModal.tsx` | | | | | + | | | | |
-| `src/utils/claude-md-utils.ts` | | | | | | + | | | |
-| `src/services/worker/agents/ResponseProcessor.ts` | | | | | | + | | | |
-| `src/sdk/prompts.ts` | | | | | | | + | | |
-| `src/services/queue/SessionQueueProcessor.ts` | | | | | | | + | | |
-| `src/cli/handlers/session-init.ts` | | | | | | | | + | |
-| `package.json` | | | | | | | | | + |
-| `plugin/package.json` | | | | | | | | | + |
-| `plugin/.claude-plugin/plugin.json` | | | | | | | | | + |
-| `.claude-plugin/marketplace.json` | | | | | | | | | + |
+| File | C | A | J | E | D | H | I | B | F | G |
+|------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `src/services/worker/SDKAgent.ts` | + | | | | | | | + | + | |
+| `src/services/worker/SessionManager.ts` | + | | | | | | | + | | |
+| `src/services/worker-service.ts` | + | | | | | | | | | |
+| `src/shared/worker-utils.ts` | | + | | | | | | | | |
+| `src/services/infrastructure/HealthMonitor.ts` | | + | | | | | | | | |
+| `plugin/scripts/worker-cli.js` | | + | | | | | | | | |
+| `plugin/scripts/smart-install.js` | | + | | | | | | | | |
+| `src/services/worker/BranchManager.ts` | | + | | | | | | | | |
+| `src/services/integrations/CursorHooksInstaller.ts` | | + | | | | | | | | |
+| `src/services/context/ContextBuilder.ts` | | + | | | | | | | | |
+| `src/services/sync/ChromaSync.ts` | | + | | | | | | | | |
+| `src/services/worker/GeminiAgent.ts` | | | + | | | + | | | | |
+| `src/services/worker/OpenRouterAgent.ts` | | | + | | | + | | | | |
+| `src/services/worker/SearchManager.ts` | | | | + | | | | | | |
+| `src/services/sqlite/SessionSearch.ts` | | | | + | | | | | | |
+| `src/servers/mcp-server.ts` | | | | | + | | | | | |
+| `src/shared/SettingsDefaultsManager.ts` | | | | | | + | + | + | + | |
+| `src/services/worker/http/routes/SettingsRoutes.ts` | | | | | | + | | | | |
+| `src/services/worker/http/middleware.ts` | | | | | | + | | | | |
+| `src/ui/viewer/types.ts` | | | | | | + | | | | |
+| `src/ui/viewer/constants/settings.ts` | | | | | | + | | | | |
+| `src/ui/viewer/hooks/useSettings.ts` | | | | | | + | | | | |
+| `src/ui/viewer/components/ContextSettingsModal.tsx` | | | | | | + | | | | |
+| `src/utils/claude-md-utils.ts` | | | | | | | + | | | |
+| `src/services/worker/agents/ResponseProcessor.ts` | | | | | | | + | | | |
+| `src/sdk/prompts.ts` | | | | | | | | + | | |
+| `src/services/queue/SessionQueueProcessor.ts` | | | | | | | | + | | |
+| `src/cli/handlers/session-init.ts` | | | | | | | | | + | |
+| `package.json` | | | | | | | | | | + |
+| `plugin/package.json` | | | | | | | | | | + |
+| `plugin/.claude-plugin/plugin.json` | | | | | | | | | | + |
+| `.claude-plugin/marketplace.json` | | | | | | | | | | + |
 
 ---
 
@@ -514,7 +516,44 @@ find . -name "CLAUDE.md" -exec grep -l "No recent activity" {} \;  # Should retu
 
 ---
 
-### Category G: Fork Configuration (Priority 9)
+### Category J: Gemini/OpenRouter memorySessionId Fix (Priority 3)
+
+**Problem**: Non-Claude providers (Gemini, OpenRouter) crash with "Cannot store observations: memorySessionId not yet captured" when starting fresh sessions. The ResponseProcessor requires memorySessionId to store observations, but only Claude SDK captures it from its response. Gemini/OpenRouter never set it, causing crashes and silent fallback to Claude SDK.
+
+**Solution**: Generate a UUID for memorySessionId at the start of session processing if it's not already set, and save it to the database.
+
+**Files**:
+| File | Change |
+|------|--------|
+| `src/services/worker/GeminiAgent.ts:137-144` | Generate UUID if memorySessionId is null, save to database |
+| `src/services/worker/OpenRouterAgent.ts:96-103` | Generate UUID if memorySessionId is null, save to database |
+
+**Code Added** (both files):
+```typescript
+// CRITICAL: Ensure memorySessionId is set for non-Claude providers
+// Claude SDK captures this from its response, but Gemini/OpenRouter need to generate it
+if (!session.memorySessionId) {
+  const generatedId = crypto.randomUUID();
+  session.memorySessionId = generatedId;
+  this.dbManager.getSessionStore().updateMemorySessionId(session.sessionDbId, generatedId);
+  logger.info('SDK', `Generated memorySessionId for ${provider} session | sessionDbId=${session.sessionDbId} | memorySessionId=${generatedId}`, {
+    sessionId: session.sessionDbId
+  });
+}
+```
+
+**Verification**:
+```bash
+# Check fix is in place
+grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/worker/OpenRouterAgent.ts
+
+# After worker restart, new Gemini sessions should show:
+# [SDK] Generated memorySessionId for Gemini session | sessionDbId=X | memorySessionId=UUID
+```
+
+---
+
+### Category G: Fork Configuration (Priority 10)
 
 **Purpose**: Maintain fork identity and marketplace configuration.
 
