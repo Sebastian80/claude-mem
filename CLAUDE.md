@@ -118,3 +118,21 @@ No need to edit the changelog ever, it's generated automatically.
 3. Run `npm run build` to build the plugin
 4. Commit and push changes
 5. Install from marketplace for testing (do not use sync script for local testing)
+
+## Implementation Process
+
+### Planning Requirements
+1. **Plan before action**: Create an implementation plan in `docs/plans/` before starting any non-trivial feature or change
+2. **Phase-based structure**: Plans must be separated by phases when appropriate, with checkboxes to track progress
+3. **Codex review option**: After creating a plan, ask user if the plan should be sent to Codex for review
+
+### Implementation Workflow
+4. **Phase-by-phase execution**: Implement the plan one phase at a time
+
+### Codex Review Loop (when enabled)
+5. After creating a plan or completing a phase:
+   - Send to Codex for review (include full plan path on first review)
+   - Receive feedback from Codex
+   - If you agree with Codex's comments: implement them
+   - If you disagree: explain reasoning to user and let user decide
+   - Continue until Codex approves moving to next phase
