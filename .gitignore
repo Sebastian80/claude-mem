@@ -11,6 +11,7 @@ dist/
 .claude/settings.local.json
 .claude/agents/
 .claude/skills/
+.claude/.fuse_hidden*
 plugin/data/
 plugin/data.backup/
 package-lock.json
@@ -25,6 +26,10 @@ src/ui/viewer.html
 .cursor/
 .ace-tool/
 .ccb_config/
+.codex-tasks/
+
+# Local caches
+.translation-cache.json
 
 # Prevent literal tilde directories (path validation bug artifacts)
 ~*/
