@@ -3,13 +3,14 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.5-jv.4`
+**Current Fork Version**: `9.0.5-jv.5`
 **Upstream Base**: `v9.0.5` (commit `3d40b45f`)
 **Last Merge**: 2026-01-14
 **Recent Updates**:
 - `9.0.5-jv.2`: Custom API Endpoints feature
-- `9.0.5-jv.3`: Fixed hardcoded marketplace paths
-- `9.0.5-jv.4`: Fixed smart-install.js CLI alias
+- `9.0.5-jv.3`: Fixed hardcoded marketplace paths in worker-cli.js and TypeScript files
+- `9.0.5-jv.4`: Fixed smart-install.js to use worker-cli.js instead of worker-service.cjs
+- `9.0.5-jv.5`: Fixed smart-install.js to update existing aliases on plugin upgrade
 
 ---
 
@@ -257,6 +258,7 @@ ps aux | grep 'claude.*resume' | grep -v grep
 | `src/services/infrastructure/HealthMonitor.ts` | Import and use `getPackageRoot()` |
 | `plugin/scripts/worker-cli.js` | Replace hardcoded "thedotmack" with "jillvernus" (2 locations) |
 | `plugin/scripts/smart-install.js:264` | Fix CLI alias to use `worker-cli.js` instead of `worker-service.cjs` |
+| `plugin/scripts/smart-install.js:296-312` | Update alias replacement logic to UPDATE existing aliases on upgrade |
 | `src/services/worker/BranchManager.ts:14` | Replace hardcoded path with "jillvernus" |
 | `src/services/integrations/CursorHooksInstaller.ts` | Replace hardcoded paths (6 locations) |
 | `src/services/context/ContextBuilder.ts` | Replace hardcoded path |
@@ -266,6 +268,9 @@ ps aux | grep 'claude.*resume' | grep -v grep
 - `worker-cli.js` is a standalone minified file (not built from TypeScript)
 - `smart-install.js` creates shell aliases during plugin installation
 - The alias MUST point to `worker-cli.js` (CLI tool), not `worker-service.cjs` (daemon)
+- **v9.0.5-jv.5**: Removed marker file check and added regex-based alias UPDATE logic
+  - Previously: skipped if alias existed, leaving old version paths
+  - Now: uses regex to find and replace existing aliases on every install/upgrade
 
 **Verification**:
 ```bash
