@@ -7,5 +7,7 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #181 | 4:36 AM | ✅ | Fork Changes Report Moved to Docs Root | ~197 |
+| #182 | " | ✅ | Fork Changes Report Moved to Docs Root | ~197 |
 | #157 | 4:05 AM | 🔵 | Extensive Documentation Structure Discovered | ~379 |
 </claude-mem-context>

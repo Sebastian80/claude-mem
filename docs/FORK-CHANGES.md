@@ -25,7 +25,7 @@ Categories are ordered by severity (critical fixes first).
 | 2 | A: Dynamic Path Resolution | Crash fix - hardcoded `thedotmack` paths | 2 | Active |
 | 3 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
 | 4 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
-| 5 | H: Custom API Endpoints | Feature - configurable Gemini/OpenRouter endpoints | 8 | Active |
+| 5 | H: Custom API Endpoints | Feature - configurable Gemini/OpenRouter endpoints | 9 | Active |
 | 6 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
 | 7 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
 | 8 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
@@ -55,6 +55,7 @@ Categories are ordered by severity (critical fixes first).
 | `src/services/worker/http/middleware.ts` | | | | | + | | | |
 | `src/ui/viewer/types.ts` | | | | | + | | | |
 | `src/ui/viewer/constants/settings.ts` | | | | | + | | | |
+| `src/ui/viewer/hooks/useSettings.ts` | | | | | + | | | |
 | `src/ui/viewer/components/ContextSettingsModal.tsx` | | | | | + | | | |
 | `src/sdk/prompts.ts` | | | | | | + | | |
 | `src/services/queue/SessionQueueProcessor.ts` | | | | | | + | | |
@@ -339,6 +340,7 @@ grep -A15 "name: 'search'" src/servers/mcp-server.ts
 | `src/services/worker/http/middleware.ts` | CORS restricted to localhost origins only (prevents CSRF attacks) |
 | `src/ui/viewer/types.ts` | Add settings to Settings interface |
 | `src/ui/viewer/constants/settings.ts` | Add default values (empty strings) |
+| `src/ui/viewer/hooks/useSettings.ts` | Load/save base URL fields (fixed in v9.0.5-jv.7) |
 | `src/ui/viewer/components/ContextSettingsModal.tsx` | UI fields with provider-specific labels and tooltips |
 
 **Configuration** (`~/.claude-mem/settings.json`):

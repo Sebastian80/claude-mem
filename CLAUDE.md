@@ -2,6 +2,16 @@
 
 Claude-mem is a Claude Code plugin providing persistent memory across sessions. It captures tool usage, compresses observations using the Claude Agent SDK, and injects relevant context into future sessions.
 
+## Fork Information
+
+This is the **JillVernus fork** of claude-mem (upstream: thedotmack/claude-mem).
+
+**IMPORTANT**: Before making changes, read `docs/FORK-CHANGES.md` which documents:
+- All differences between this fork and upstream
+- Categories of changes (A-H) with severity levels
+- Merge procedure for upstream releases
+- File-by-file change tracking
+
 ## Architecture
 
 **5 Lifecycle Hooks**: SessionStart → UserPromptSubmit → PostToolUse → Summary → SessionEnd
@@ -72,6 +82,10 @@ See `private/context/claude-code/exit-codes.md` for full hook behavior matrix.
 **Public Docs**: https://docs.claude-mem.ai (Mintlify)
 **Source**: `docs/public/` - MDX files, edit `docs.json` for navigation
 **Deploy**: Auto-deploys from GitHub on push to main
+
+**Fork Documentation**:
+- `docs/FORK-CHANGES.md` - All fork differences, merge procedures, change categories
+- `docs/plans/` - Implementation plans for upcoming features
 
 ## Pro Features Architecture
 
