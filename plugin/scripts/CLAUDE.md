@@ -10,4 +10,5 @@
 | #51 | 2:36 AM | 🔴 | Modified second hardcoded marketplace path in `worker-cli.js` | ~323 |
 | #50 | " | 🔴 | Modified hardcoded marketplace path in `worker-cli.js` | ~345 |
 | #47 | 2:35 AM | 🔵 | Discovered `plugin/scripts/worker-cli.js` is an obsolete artifact with hardcoded path | ~477 |
+| #14 | 2:29 AM | 🔵 | Analyzed `worker-cli.js` for worker service management | ~374 |
 </claude-mem-context>

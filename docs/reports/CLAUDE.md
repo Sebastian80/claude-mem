@@ -8,6 +8,4 @@
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
 | #47 | 2:35 AM | 🔵 | Discovered `plugin/scripts/worker-cli.js` is an obsolete artifact with hardcoded path | ~477 |
-| #25 | 2:33 AM | 🔵 | Identified hardcoded marketplace path in compiled `worker-cli.js` | ~465 |
-| #21 | 2:32 AM | 🔴 | Fixed hardcoded marketplace path causing `ENOENT` errors | ~466 |
 </claude-mem-context>

@@ -266,9 +266,6 @@ function installCLI() {
   const aliasLine = `alias claude-mem='${bunPath} "${WORKER_CLI}"'`;
   const markerPath = join(ROOT, '.cli-installed');
 
-  // Skip if already installed
-  if (existsSync(markerPath)) return;
-
   try {
     if (IS_WINDOWS) {
       // Windows: Add to PATH via PowerShell profile
@@ -287,7 +284,7 @@ function installCLI() {
         console.error('   Restart your terminal to use: claude-mem <command>');
       }
     } else {
-      // Unix: Add alias to shell configs
+      // Unix: Add or update alias in shell configs
       const shellConfigs = [
         join(homedir(), '.bashrc'),
         join(homedir(), '.zshrc')
@@ -295,8 +292,16 @@ function installCLI() {
 
       for (const config of shellConfigs) {
         if (existsSync(config)) {
-          const content = readFileSync(config, 'utf-8');
-          if (!content.includes('alias claude-mem=')) {
+          let content = readFileSync(config, 'utf-8');
+          const aliasRegex = /alias claude-mem=.*/g;
+
+          if (content.match(aliasRegex)) {
+            // Update existing alias
+            content = content.replace(aliasRegex, aliasLine);
+            writeFileSync(config, content);
+            console.error(`✅ Alias updated in ${config}`);
+          } else {
+            // Add new alias
             writeFileSync(config, content + '\n' + aliasLine + '\n');
             console.error(`✅ Alias added to ${config}`);
           }
