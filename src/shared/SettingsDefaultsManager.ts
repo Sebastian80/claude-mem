@@ -19,19 +19,28 @@ export interface SettingsDefaults {
   CLAUDE_MEM_WORKER_HOST: string;
   CLAUDE_MEM_SKIP_TOOLS: string;
   // AI Provider Configuration
-  CLAUDE_MEM_PROVIDER: string;  // 'claude' | 'gemini' | 'openrouter'
+  CLAUDE_MEM_PROVIDER: string;  // 'claude' | 'gemini' | 'openai'
   CLAUDE_MEM_GEMINI_API_KEY: string;
   CLAUDE_MEM_GEMINI_MODEL: string;  // 'gemini-2.5-flash-lite' | 'gemini-2.5-flash' | 'gemini-3-flash'
   CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: string;  // 'true' | 'false' - enable rate limiting for free tier
-  CLAUDE_MEM_OPENROUTER_API_KEY: string;
-  CLAUDE_MEM_OPENROUTER_MODEL: string;
-  CLAUDE_MEM_OPENROUTER_SITE_URL: string;
-  CLAUDE_MEM_OPENROUTER_APP_NAME: string;
-  CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES: string;
-  CLAUDE_MEM_OPENROUTER_MAX_TOKENS: string;
+  // OpenAI-Compatible Provider (formerly OpenRouter)
+  CLAUDE_MEM_OPENAI_API_KEY: string;
+  CLAUDE_MEM_OPENAI_MODEL: string;
+  CLAUDE_MEM_OPENAI_SITE_URL: string;
+  CLAUDE_MEM_OPENAI_APP_NAME: string;
+  CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES: string;
+  CLAUDE_MEM_OPENAI_MAX_TOKENS: string;
+  CLAUDE_MEM_OPENAI_BASE_URL: string;
+  // Legacy OpenRouter keys (deprecated, migrated to OPENAI)
+  CLAUDE_MEM_OPENROUTER_API_KEY?: string;
+  CLAUDE_MEM_OPENROUTER_MODEL?: string;
+  CLAUDE_MEM_OPENROUTER_SITE_URL?: string;
+  CLAUDE_MEM_OPENROUTER_APP_NAME?: string;
+  CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES?: string;
+  CLAUDE_MEM_OPENROUTER_MAX_TOKENS?: string;
+  CLAUDE_MEM_OPENROUTER_BASE_URL?: string;
   // Custom API Endpoints
   CLAUDE_MEM_GEMINI_BASE_URL: string;
-  CLAUDE_MEM_OPENROUTER_BASE_URL: string;
   // System Configuration
   CLAUDE_MEM_DATA_DIR: string;
   CLAUDE_MEM_LOG_LEVEL: string;
@@ -77,15 +86,16 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_GEMINI_API_KEY: '',  // Empty by default, can be set via UI or env
     CLAUDE_MEM_GEMINI_MODEL: 'gemini-2.5-flash-lite',  // Default Gemini model (highest free tier RPM)
     CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: 'true',  // Rate limiting ON by default for free tier users
-    CLAUDE_MEM_OPENROUTER_API_KEY: '',  // Empty by default, can be set via UI or env
-    CLAUDE_MEM_OPENROUTER_MODEL: 'xiaomi/mimo-v2-flash:free',  // Default OpenRouter model (free tier)
-    CLAUDE_MEM_OPENROUTER_SITE_URL: '',  // Optional: for OpenRouter analytics
-    CLAUDE_MEM_OPENROUTER_APP_NAME: 'claude-mem',  // App name for OpenRouter analytics
-    CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES: '20',  // Max messages in context window
-    CLAUDE_MEM_OPENROUTER_MAX_TOKENS: '100000',  // Max estimated tokens (~100k safety limit)
+    // OpenAI-Compatible Provider (formerly OpenRouter)
+    CLAUDE_MEM_OPENAI_API_KEY: '',  // Empty by default, can be set via UI or env
+    CLAUDE_MEM_OPENAI_MODEL: 'xiaomi/mimo-v2-flash:free',  // Default model (free tier on OpenRouter)
+    CLAUDE_MEM_OPENAI_SITE_URL: '',  // Optional: for OpenRouter analytics
+    CLAUDE_MEM_OPENAI_APP_NAME: 'claude-mem',  // App name for analytics
+    CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES: '20',  // Max messages in context window
+    CLAUDE_MEM_OPENAI_MAX_TOKENS: '100000',  // Max estimated tokens (~100k safety limit)
+    CLAUDE_MEM_OPENAI_BASE_URL: 'https://openrouter.ai/api/v1/chat/completions',  // Default to OpenRouter
     // Custom API Endpoints (empty = use hardcoded defaults)
     CLAUDE_MEM_GEMINI_BASE_URL: '',
-    CLAUDE_MEM_OPENROUTER_BASE_URL: '',
     // System Configuration
     CLAUDE_MEM_DATA_DIR: join(homedir(), '.claude-mem'),
     CLAUDE_MEM_LOG_LEVEL: 'INFO',
@@ -185,6 +195,50 @@ export class SettingsDefaultsManager {
         } catch (error) {
           console.warn('[SETTINGS] Failed to auto-migrate settings file:', settingsPath, error);
           // Continue with in-memory migration even if write fails
+        }
+      }
+
+      // MIGRATION: OpenRouter → OpenAI (v9.0.6)
+      // Migrate old OPENROUTER keys to new OPENAI keys
+      let needsSave = false;
+      const openRouterMigrationMap: Record<string, string> = {
+        'CLAUDE_MEM_OPENROUTER_API_KEY': 'CLAUDE_MEM_OPENAI_API_KEY',
+        'CLAUDE_MEM_OPENROUTER_MODEL': 'CLAUDE_MEM_OPENAI_MODEL',
+        'CLAUDE_MEM_OPENROUTER_SITE_URL': 'CLAUDE_MEM_OPENAI_SITE_URL',
+        'CLAUDE_MEM_OPENROUTER_APP_NAME': 'CLAUDE_MEM_OPENAI_APP_NAME',
+        'CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES': 'CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES',
+        'CLAUDE_MEM_OPENROUTER_MAX_TOKENS': 'CLAUDE_MEM_OPENAI_MAX_TOKENS',
+        'CLAUDE_MEM_OPENROUTER_BASE_URL': 'CLAUDE_MEM_OPENAI_BASE_URL',
+      };
+
+      for (const [oldKey, newKey] of Object.entries(openRouterMigrationMap)) {
+        // Only migrate if old key exists and new key doesn't (idempotent)
+        if (flatSettings[oldKey] !== undefined && flatSettings[newKey] === undefined) {
+          flatSettings[newKey] = flatSettings[oldKey];
+          delete flatSettings[oldKey];
+          needsSave = true;
+          console.log(`[SETTINGS] Migrated ${oldKey} → ${newKey}`);
+        } else if (flatSettings[oldKey] !== undefined) {
+          // Old key exists but new key also exists - just delete the old one
+          delete flatSettings[oldKey];
+          needsSave = true;
+        }
+      }
+
+      // Migrate provider value: 'openrouter' → 'openai'
+      if (flatSettings.CLAUDE_MEM_PROVIDER === 'openrouter') {
+        flatSettings.CLAUDE_MEM_PROVIDER = 'openai';
+        needsSave = true;
+        console.log('[SETTINGS] Migrated provider: openrouter → openai');
+      }
+
+      // Save migrated settings
+      if (needsSave) {
+        try {
+          writeFileSync(settingsPath, JSON.stringify(flatSettings, null, 2), 'utf-8');
+          console.log('[SETTINGS] Saved OpenRouter → OpenAI migration:', settingsPath);
+        } catch (error) {
+          console.warn('[SETTINGS] Failed to save migration:', settingsPath, error);
         }
       }
 

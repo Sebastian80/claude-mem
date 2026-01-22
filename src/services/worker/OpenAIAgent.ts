@@ -1,11 +1,11 @@
 /**
- * OpenRouterAgent: OpenRouter-based observation extraction
+ * OpenAIAgent: OpenAI-compatible observation extraction
  *
- * Alternative to SDKAgent that uses OpenRouter's unified API
- * for accessing 100+ models from different providers.
+ * Alternative to SDKAgent that uses OpenAI-compatible APIs
+ * for accessing models from OpenRouter, local LLMs, and other providers.
  *
  * Responsibility:
- * - Call OpenRouter REST API for observation extraction
+ * - Call OpenAI-compatible REST API for observation extraction
  * - Parse XML responses (same format as Claude/Gemini)
  * - Sync to database and Chroma
  * - Support dynamic model selection across providers
@@ -27,8 +27,8 @@ import {
   type FallbackAgent
 } from './agents/index.js';
 
-// OpenRouter API endpoint (default, can be overridden via settings)
-const DEFAULT_OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+// Default API endpoint (OpenRouter, can be overridden via settings)
+const DEFAULT_OPENAI_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 // Context window management constants (defaults, overridable via settings)
 const DEFAULT_MAX_CONTEXT_MESSAGES = 20;  // Maximum messages to keep in conversation history
@@ -41,7 +41,7 @@ interface OpenAIMessage {
   content: string;
 }
 
-interface OpenRouterResponse {
+interface OpenAIResponse {
   choices?: Array<{
     message?: {
       role?: string;
@@ -60,7 +60,7 @@ interface OpenRouterResponse {
   };
 }
 
-export class OpenRouterAgent {
+export class OpenAIAgent {
   private dbManager: DatabaseManager;
   private sessionManager: SessionManager;
   private fallbackAgent: FallbackAgent | null = null;
@@ -71,7 +71,7 @@ export class OpenRouterAgent {
   }
 
   /**
-   * Set the fallback agent (Claude SDK) for when OpenRouter API fails
+   * Set the fallback agent (Claude SDK) for when OpenAI-compatible API fails
    * Must be set after construction to avoid circular dependency
    */
   setFallbackAgent(agent: FallbackAgent): void {
@@ -79,25 +79,25 @@ export class OpenRouterAgent {
   }
 
   /**
-   * Start OpenRouter agent for a session
+   * Start OpenAI-compatible agent for a session
    * Uses multi-turn conversation to maintain context across messages
    */
   async startSession(session: ActiveSession, worker?: WorkerRef): Promise<void> {
     try {
-      // Get OpenRouter configuration
-      const { apiKey, model, siteUrl, appName } = this.getOpenRouterConfig();
+      // Get OpenAI-compatible configuration
+      const { apiKey, model, siteUrl, appName } = this.getOpenAIConfig();
 
       if (!apiKey) {
-        throw new Error('OpenRouter API key not configured. Set CLAUDE_MEM_OPENROUTER_API_KEY in settings or OPENROUTER_API_KEY environment variable.');
+        throw new Error('OpenAI-compatible API key not configured. Set CLAUDE_MEM_OPENAI_API_KEY in settings or OPENROUTER_API_KEY environment variable.');
       }
 
       // CRITICAL: Ensure memorySessionId is set for non-Claude providers
-      // Claude SDK captures this from its response, but Gemini/OpenRouter need to generate it
+      // Claude SDK captures this from its response, but Gemini/OpenAI need to generate it
       if (!session.memorySessionId) {
         const generatedId = crypto.randomUUID();
         session.memorySessionId = generatedId;
         this.dbManager.getSessionStore().updateMemorySessionId(session.sessionDbId, generatedId);
-        logger.info('SDK', `Generated memorySessionId for OpenRouter session | sessionDbId=${session.sessionDbId} | memorySessionId=${generatedId}`, {
+        logger.info('SDK', `Generated memorySessionId for OpenAI session | sessionDbId=${session.sessionDbId} | memorySessionId=${generatedId}`, {
           sessionId: session.sessionDbId
         });
       }
@@ -110,9 +110,9 @@ export class OpenRouterAgent {
         ? buildInitPrompt(session.project, session.contentSessionId, session.userPrompt, mode)
         : buildContinuationPrompt(session.userPrompt, session.lastPromptNumber, session.contentSessionId, mode);
 
-      // Add to conversation history and query OpenRouter with full context
+      // Add to conversation history and query OpenAI-compatible API with full context
       session.conversationHistory.push({ role: 'user', content: initPrompt });
-      const initResponse = await this.queryOpenRouterMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
+      const initResponse = await this.queryOpenAIMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
 
       if (initResponse.content) {
         // Add response to conversation history
@@ -132,11 +132,11 @@ export class OpenRouterAgent {
           worker,
           tokensUsed,
           null,
-          'OpenRouter',
+          'OpenAI',
           undefined  // No lastCwd yet - before message processing
         );
       } else {
-        logger.error('SDK', 'Empty OpenRouter init response - session may lack context', {
+        logger.error('SDK', 'Empty OpenAI init response - session may lack context', {
           sessionId: session.sessionDbId,
           model
         });
@@ -170,9 +170,9 @@ export class OpenRouterAgent {
             cwd: message.cwd
           });
 
-          // Add to conversation history and query OpenRouter with full context
+          // Add to conversation history and query OpenAI-compatible API with full context
           session.conversationHistory.push({ role: 'user', content: obsPrompt });
-          const obsResponse = await this.queryOpenRouterMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
+          const obsResponse = await this.queryOpenAIMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
 
           let tokensUsed = 0;
           if (obsResponse.content) {
@@ -193,7 +193,7 @@ export class OpenRouterAgent {
             worker,
             tokensUsed,
             originalTimestamp,
-            'OpenRouter',
+            'OpenAI',
             lastCwd
           );
 
@@ -207,9 +207,9 @@ export class OpenRouterAgent {
             last_assistant_message: message.last_assistant_message || ''
           }, mode);
 
-          // Add to conversation history and query OpenRouter with full context
+          // Add to conversation history and query OpenAI-compatible API with full context
           session.conversationHistory.push({ role: 'user', content: summaryPrompt });
-          const summaryResponse = await this.queryOpenRouterMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
+          const summaryResponse = await this.queryOpenAIMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
 
           let tokensUsed = 0;
           if (summaryResponse.content) {
@@ -230,7 +230,7 @@ export class OpenRouterAgent {
             worker,
             tokensUsed,
             originalTimestamp,
-            'OpenRouter',
+            'OpenAI',
             lastCwd
           );
         }
@@ -238,7 +238,7 @@ export class OpenRouterAgent {
 
       // Mark session complete
       const sessionDuration = Date.now() - session.startTime;
-      logger.success('SDK', 'OpenRouter agent completed', {
+      logger.success('SDK', 'OpenAI agent completed', {
         sessionId: session.sessionDbId,
         duration: `${(sessionDuration / 1000).toFixed(1)}s`,
         historyLength: session.conversationHistory.length,
@@ -247,13 +247,13 @@ export class OpenRouterAgent {
 
     } catch (error: unknown) {
       if (isAbortError(error)) {
-        logger.warn('SDK', 'OpenRouter agent aborted', { sessionId: session.sessionDbId });
+        logger.warn('SDK', 'OpenAI agent aborted', { sessionId: session.sessionDbId });
         throw error;
       }
 
       // Check if we should fall back to Claude
       if (shouldFallbackToClaude(error) && this.fallbackAgent) {
-        logger.warn('SDK', 'OpenRouter API failed, falling back to Claude SDK', {
+        logger.warn('SDK', 'OpenAI API failed, falling back to Claude SDK', {
           sessionDbId: session.sessionDbId,
           error: error instanceof Error ? error.message : String(error),
           historyLength: session.conversationHistory.length
@@ -264,7 +264,7 @@ export class OpenRouterAgent {
         return this.fallbackAgent.startSession(session, worker);
       }
 
-      logger.failure('SDK', 'OpenRouter agent error', { sessionDbId: session.sessionDbId }, error as Error);
+      logger.failure('SDK', 'OpenAI agent error', { sessionDbId: session.sessionDbId }, error as Error);
       throw error;
     }
   }
@@ -283,8 +283,8 @@ export class OpenRouterAgent {
   private truncateHistory(history: ConversationMessage[]): ConversationMessage[] {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
 
-    const MAX_CONTEXT_MESSAGES = parseInt(settings.CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES) || DEFAULT_MAX_CONTEXT_MESSAGES;
-    const MAX_ESTIMATED_TOKENS = parseInt(settings.CLAUDE_MEM_OPENROUTER_MAX_TOKENS) || DEFAULT_MAX_ESTIMATED_TOKENS;
+    const MAX_CONTEXT_MESSAGES = parseInt(settings.CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES) || DEFAULT_MAX_CONTEXT_MESSAGES;
+    const MAX_ESTIMATED_TOKENS = parseInt(settings.CLAUDE_MEM_OPENAI_MAX_TOKENS) || DEFAULT_MAX_ESTIMATED_TOKENS;
 
     if (history.length <= MAX_CONTEXT_MESSAGES) {
       // Check token count even if message count is ok
@@ -332,22 +332,22 @@ export class OpenRouterAgent {
   }
 
   /**
-   * Get OpenRouter base URL from settings or environment
+   * Get OpenAI-compatible base URL from settings or environment
    */
-  private getOpenRouterBaseUrl(): string {
+  private getOpenAIBaseUrl(): string {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
 
     // Priority: settings > env var > default
-    return settings.CLAUDE_MEM_OPENROUTER_BASE_URL
-      || (process.env.OPENROUTER_BASE_URL || '').trim()
-      || DEFAULT_OPENROUTER_API_URL;
+    return settings.CLAUDE_MEM_OPENAI_BASE_URL
+      || (process.env.OPENAI_BASE_URL || '').trim()
+      || DEFAULT_OPENAI_API_URL;
   }
 
   /**
-   * Query OpenRouter via REST API with full conversation history (multi-turn)
+   * Query OpenAI-compatible API via REST with full conversation history (multi-turn)
    * Sends the entire conversation context for coherent responses
    */
-  private async queryOpenRouterMultiTurn(
+  private async queryOpenAIMultiTurn(
     history: ConversationMessage[],
     apiKey: string,
     model: string,
@@ -360,13 +360,13 @@ export class OpenRouterAgent {
     const totalChars = truncatedHistory.reduce((sum, m) => sum + m.content.length, 0);
     const estimatedTokens = this.estimateTokens(truncatedHistory.map(m => m.content).join(''));
 
-    logger.debug('SDK', `Querying OpenRouter multi-turn (${model})`, {
+    logger.debug('SDK', `Querying OpenAI multi-turn (${model})`, {
       turns: truncatedHistory.length,
       totalChars,
       estimatedTokens
     });
 
-    const url = this.getOpenRouterBaseUrl();
+    const url = this.getOpenAIBaseUrl();
 
     const response = await fetch(url, {
       method: 'POST',
@@ -386,18 +386,18 @@ export class OpenRouterAgent {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`OpenRouter API error: ${response.status} - ${errorText}`);
+      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json() as OpenRouterResponse;
+    const data = await response.json() as OpenAIResponse;
 
     // Check for API error in response body
     if (data.error) {
-      throw new Error(`OpenRouter API error: ${data.error.code} - ${data.error.message}`);
+      throw new Error(`OpenAI API error: ${data.error.code} - ${data.error.message}`);
     }
 
     if (!data.choices?.[0]?.message?.content) {
-      logger.error('SDK', 'Empty response from OpenRouter');
+      logger.error('SDK', 'Empty response from OpenAI API');
       return { content: '' };
     }
 
@@ -408,10 +408,10 @@ export class OpenRouterAgent {
     if (tokensUsed) {
       const inputTokens = data.usage?.prompt_tokens || 0;
       const outputTokens = data.usage?.completion_tokens || 0;
-      // Token usage (cost varies by model - many OpenRouter models are free)
+      // Token usage (cost varies by model and provider)
       const estimatedCost = (inputTokens / 1000000 * 3) + (outputTokens / 1000000 * 15);
 
-      logger.info('SDK', 'OpenRouter API usage', {
+      logger.info('SDK', 'OpenAI API usage', {
         model,
         inputTokens,
         outputTokens,
@@ -433,40 +433,41 @@ export class OpenRouterAgent {
   }
 
   /**
-   * Get OpenRouter configuration from settings or environment
+   * Get OpenAI-compatible configuration from settings or environment
    */
-  private getOpenRouterConfig(): { apiKey: string; model: string; siteUrl?: string; appName?: string } {
+  private getOpenAIConfig(): { apiKey: string; model: string; siteUrl?: string; appName?: string } {
     const settingsPath = USER_SETTINGS_PATH;
     const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
 
     // API key: check settings first, then environment variable
-    const apiKey = settings.CLAUDE_MEM_OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || '';
+    const apiKey = settings.CLAUDE_MEM_OPENAI_API_KEY || process.env.OPENROUTER_API_KEY || '';
 
     // Model: from settings or default
-    const model = settings.CLAUDE_MEM_OPENROUTER_MODEL || 'xiaomi/mimo-v2-flash:free';
+    const model = settings.CLAUDE_MEM_OPENAI_MODEL || 'xiaomi/mimo-v2-flash:free';
 
     // Optional analytics headers
-    const siteUrl = settings.CLAUDE_MEM_OPENROUTER_SITE_URL || '';
-    const appName = settings.CLAUDE_MEM_OPENROUTER_APP_NAME || 'claude-mem';
+    const siteUrl = settings.CLAUDE_MEM_OPENAI_SITE_URL || '';
+    const appName = settings.CLAUDE_MEM_OPENAI_APP_NAME || 'claude-mem';
 
     return { apiKey, model, siteUrl, appName };
   }
 }
 
 /**
- * Check if OpenRouter is available (has API key configured)
+ * Check if OpenAI-compatible provider is available (has API key configured)
  */
-export function isOpenRouterAvailable(): boolean {
+export function isOpenAIAvailable(): boolean {
   const settingsPath = USER_SETTINGS_PATH;
   const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
-  return !!(settings.CLAUDE_MEM_OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY);
+  return !!(settings.CLAUDE_MEM_OPENAI_API_KEY || process.env.OPENROUTER_API_KEY);
 }
 
 /**
- * Check if OpenRouter is the selected provider
+ * Check if OpenAI-compatible provider is the selected provider
  */
-export function isOpenRouterSelected(): boolean {
+export function isOpenAISelected(): boolean {
   const settingsPath = USER_SETTINGS_PATH;
   const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
-  return settings.CLAUDE_MEM_PROVIDER === 'openrouter';
+  // Accept both 'openai' and legacy 'openrouter' for backwards compatibility
+  return settings.CLAUDE_MEM_PROVIDER === 'openai' || settings.CLAUDE_MEM_PROVIDER === 'openrouter';
 }

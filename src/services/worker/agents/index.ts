@@ -1,7 +1,7 @@
 /**
  * Agent Consolidation Module
  *
- * This module provides shared utilities for SDK, Gemini, and OpenRouter agents.
+ * This module provides shared utilities for SDK, Gemini, and OpenAI-compatible agents.
  * It extracts common patterns to reduce code duplication and ensure consistent behavior.
  *
  * Usage:

@@ -3,7 +3,7 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.5-jv.9`
+**Current Fork Version**: `9.0.5-jv.10`
 **Upstream Base**: `v9.0.5` (commit `3d40b45f`)
 **Last Merge**: 2026-01-14
 **Recent Updates**:
@@ -14,6 +14,7 @@ Categories are ordered by severity (critical fixes first).
 - `9.0.5-jv.7`: Fixed useSettings.ts missing base URL fields (CLAUDE_MEM_GEMINI_BASE_URL, CLAUDE_MEM_OPENROUTER_BASE_URL)
 - `9.0.5-jv.8`: Fixed folder CLAUDE.md generation - disabled by default, no empty files created
 - `9.0.5-jv.9`: Fixed Gemini/OpenRouter memorySessionId bug - generate UUID for non-Claude providers
+- `9.0.5-jv.10`: Dynamic Model Selection - URL normalization, dynamic model fetching, OpenRouter→OpenAI rename
 
 ---
 
@@ -25,51 +26,59 @@ Categories are ordered by severity (critical fixes first).
 |----------|----------|---------|-------|--------|
 | 1 | C: Zombie Process Cleanup | Memory leak fix - orphan SDK processes | 3 | Active |
 | 2 | A: Dynamic Path Resolution | Crash fix - hardcoded `thedotmack` paths | 2 | Active |
-| 3 | J: Gemini/OpenRouter memorySessionId | Bugfix - non-Claude providers crash without UUID | 2 | Active |
+| 3 | J: Gemini/OpenAI memorySessionId | Bugfix - non-Claude providers crash without UUID | 2 | Active |
 | 4 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
 | 5 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
-| 6 | H: Custom API Endpoints | Feature - configurable Gemini/OpenRouter endpoints | 9 | Active |
-| 7 | I: Folder CLAUDE.md Optimization | Fix - disable by default, no empty files | 3 | Active |
-| 8 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
-| 9 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
-| 10 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
+| 6 | H: Custom API Endpoints | Feature - configurable Gemini/OpenAI endpoints | 9 | Active |
+| 7 | K: Dynamic Model Selection | Feature - URL normalization, model fetching, OpenRouter→OpenAI | 15 | Active |
+| 8 | I: Folder CLAUDE.md Optimization | Fix - disable by default, no empty files | 3 | Active |
+| 9 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
+| 10 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
+| 11 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
 
 ### Files by Category
 
-| File | C | A | J | E | D | H | I | B | F | G |
-|------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `src/services/worker/SDKAgent.ts` | + | | | | | | | + | + | |
-| `src/services/worker/SessionManager.ts` | + | | | | | | | + | | |
-| `src/services/worker-service.ts` | + | | | | | | | | | |
-| `src/shared/worker-utils.ts` | | + | | | | | | | | |
-| `src/services/infrastructure/HealthMonitor.ts` | | + | | | | | | | | |
-| `plugin/scripts/worker-cli.js` | | + | | | | | | | | |
-| `plugin/scripts/smart-install.js` | | + | | | | | | | | |
-| `src/services/worker/BranchManager.ts` | | + | | | | | | | | |
-| `src/services/integrations/CursorHooksInstaller.ts` | | + | | | | | | | | |
-| `src/services/context/ContextBuilder.ts` | | + | | | | | | | | |
-| `src/services/sync/ChromaSync.ts` | | + | | | | | | | | |
-| `src/services/worker/GeminiAgent.ts` | | | + | | | + | | | | |
-| `src/services/worker/OpenRouterAgent.ts` | | | + | | | + | | | | |
-| `src/services/worker/SearchManager.ts` | | | | + | | | | | | |
-| `src/services/sqlite/SessionSearch.ts` | | | | + | | | | | | |
-| `src/servers/mcp-server.ts` | | | | | + | | | | | |
-| `src/shared/SettingsDefaultsManager.ts` | | | | | | + | + | + | + | |
-| `src/services/worker/http/routes/SettingsRoutes.ts` | | | | | | + | | | | |
-| `src/services/worker/http/middleware.ts` | | | | | | + | | | | |
-| `src/ui/viewer/types.ts` | | | | | | + | | | | |
-| `src/ui/viewer/constants/settings.ts` | | | | | | + | | | | |
-| `src/ui/viewer/hooks/useSettings.ts` | | | | | | + | | | | |
-| `src/ui/viewer/components/ContextSettingsModal.tsx` | | | | | | + | | | | |
-| `src/utils/claude-md-utils.ts` | | | | | | | + | | | |
-| `src/services/worker/agents/ResponseProcessor.ts` | | | | | | | + | | | |
-| `src/sdk/prompts.ts` | | | | | | | | + | | |
-| `src/services/queue/SessionQueueProcessor.ts` | | | | | | | | + | | |
-| `src/cli/handlers/session-init.ts` | | | | | | | | | + | |
-| `package.json` | | | | | | | | | | + |
-| `plugin/package.json` | | | | | | | | | | + |
-| `plugin/.claude-plugin/plugin.json` | | | | | | | | | | + |
-| `.claude-plugin/marketplace.json` | | | | | | | | | | + |
+| File | C | A | J | E | D | H | K | I | B | F | G |
+|------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `src/services/worker/SDKAgent.ts` | + | | | | | | | | + | + | |
+| `src/services/worker/SessionManager.ts` | + | | | | | | | | + | | |
+| `src/services/worker-service.ts` | + | | | | | | + | | | | |
+| `src/services/worker-types.ts` | | | | | | | + | | | | |
+| `src/shared/worker-utils.ts` | | + | | | | | | | | | |
+| `src/services/infrastructure/HealthMonitor.ts` | | + | | | | | | | | | |
+| `plugin/scripts/worker-cli.js` | | + | | | | | | | | | |
+| `plugin/scripts/smart-install.js` | | + | | | | | | | | | |
+| `src/services/worker/BranchManager.ts` | | + | | | | | | | | | |
+| `src/services/integrations/CursorHooksInstaller.ts` | | + | | | | | | | | | |
+| `src/services/context/ContextBuilder.ts` | | + | | | | | | | | | |
+| `src/services/sync/ChromaSync.ts` | | + | | | | | | | | | |
+| `src/services/worker/GeminiAgent.ts` | | | + | | | + | + | | | | |
+| `src/services/worker/OpenAIAgent.ts` | | | + | | | + | + | | | | |
+| `src/services/worker/SearchManager.ts` | | | | + | | | | | | | |
+| `src/services/sqlite/SessionSearch.ts` | | | | + | | | | | | | |
+| `src/servers/mcp-server.ts` | | | | | + | | | | | | |
+| `src/shared/SettingsDefaultsManager.ts` | | | | | | + | + | + | + | + | |
+| `src/services/worker/http/routes/SettingsRoutes.ts` | | | | | | + | + | | | | |
+| `src/services/worker/http/routes/SessionRoutes.ts` | | | | | | | + | | | | |
+| `src/services/worker/http/middleware.ts` | | | | | | + | | | | | |
+| `src/ui/viewer/types.ts` | | | | | | + | + | | | | |
+| `src/ui/viewer/constants/settings.ts` | | | | | | + | + | | | | |
+| `src/ui/viewer/constants/api.ts` | | | | | | | + | | | | |
+| `src/ui/viewer/hooks/useSettings.ts` | | | | | | + | + | | | | |
+| `src/ui/viewer/hooks/useModelFetch.ts` | | | | | | | + | | | | |
+| `src/ui/viewer/components/ContextSettingsModal.tsx` | | | | | | + | + | | | | |
+| `src/utils/url-utils.ts` | | | | | | | + | | | | |
+| `src/services/worker/agents/types.ts` | | | | | | | + | | | | |
+| `src/utils/claude-md-utils.ts` | | | | | | | | + | | | |
+| `src/services/worker/agents/ResponseProcessor.ts` | | | | | | | | + | | | |
+| `src/sdk/prompts.ts` | | | | | | | | | + | | |
+| `src/services/queue/SessionQueueProcessor.ts` | | | | | | | | | + | | |
+| `src/cli/handlers/session-init.ts` | | | | | | | | | | + | |
+| `package.json` | | | | | | | | | | | + |
+| `plugin/package.json` | | | | | | | | | | | + |
+| `plugin/.claude-plugin/plugin.json` | | | | | | | | | | | + |
+| `.claude-plugin/marketplace.json` | | | | | | | | | | | + |
+| `README.md` | | | | | | | + | | | | |
 
 ---
 
@@ -332,16 +341,16 @@ grep -A15 "name: 'search'" src/servers/mcp-server.ts
 
 ### Category H: Custom API Endpoints (Priority 5)
 
-**Problem**: Users cannot configure custom API endpoints for Gemini/OpenRouter (proxies, self-hosted gateways, regional endpoints).
+**Problem**: Users cannot configure custom API endpoints for Gemini/OpenAI-compatible providers (proxies, self-hosted gateways, regional endpoints).
 
 **Solution**: Add configurable base URL settings with validation, security controls, and UI support.
 
 **Files**:
 | File | Change |
 |------|--------|
-| `src/shared/SettingsDefaultsManager.ts` | Add `CLAUDE_MEM_GEMINI_BASE_URL` and `CLAUDE_MEM_OPENROUTER_BASE_URL` settings |
+| `src/shared/SettingsDefaultsManager.ts` | Add `CLAUDE_MEM_GEMINI_BASE_URL` and `CLAUDE_MEM_OPENAI_BASE_URL` settings |
 | `src/services/worker/GeminiAgent.ts` | `getGeminiBaseUrl()` method with priority: settings > env > default, trailing slash handling |
-| `src/services/worker/OpenRouterAgent.ts` | `getOpenRouterBaseUrl()` method with priority: settings > env > default |
+| `src/services/worker/OpenAIAgent.ts` | `getOpenAIBaseUrl()` method with priority: settings > env > default |
 | `src/services/worker/http/routes/SettingsRoutes.ts` | URL validation (whitespace, credentials, protocol), localhost protection, USER_SETTINGS_PATH consistency |
 | `src/services/worker/http/middleware.ts` | CORS restricted to localhost origins only (prevents CSRF attacks) |
 | `src/ui/viewer/types.ts` | Add settings to Settings interface |
@@ -353,20 +362,20 @@ grep -A15 "name: 'search'" src/servers/mcp-server.ts
 ```json
 {
   "CLAUDE_MEM_GEMINI_BASE_URL": "https://my-proxy.com/v1beta/models",
-  "CLAUDE_MEM_OPENROUTER_BASE_URL": "https://my-gateway.com/api/v1/chat/completions"
+  "CLAUDE_MEM_OPENAI_BASE_URL": "https://my-gateway.com/api/v1/chat/completions"
 }
 ```
 
 Or via environment variables:
 ```bash
 export GEMINI_BASE_URL="https://my-proxy.com/v1beta/models"
-export OPENROUTER_BASE_URL="https://my-gateway.com/api/v1/chat/completions"
+export OPENAI_BASE_URL="https://my-gateway.com/api/v1/chat/completions"
 ```
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `CLAUDE_MEM_GEMINI_BASE_URL` | — | Custom Gemini models base URL (model name appended automatically) |
-| `CLAUDE_MEM_OPENROUTER_BASE_URL` | — | Custom OpenRouter endpoint URL (full chat completions URL) |
+| `CLAUDE_MEM_OPENAI_BASE_URL` | — | Custom OpenAI-compatible endpoint URL (full chat completions URL) |
 
 **Security Features**:
 - Localhost-only access to GET/POST /api/settings (prevents API key exfiltration)
@@ -377,23 +386,23 @@ export OPENROUTER_BASE_URL="https://my-gateway.com/api/v1/chat/completions"
 **URL Semantics**:
 - **Gemini**: Expects "models base" - model name is appended automatically
   - Example: `https://proxy.com/v1beta/models` → `https://proxy.com/v1beta/models/gemini-2.5-flash:generateContent`
-- **OpenRouter**: Expects full endpoint URL - nothing is appended
+- **OpenAI**: Expects full endpoint URL - nothing is appended
   - Example: `https://gateway.com/api/v1/chat/completions` (complete URL)
 
 **Verification**:
 ```bash
 # Check settings schema
-grep -n 'CLAUDE_MEM_GEMINI_BASE_URL\|CLAUDE_MEM_OPENROUTER_BASE_URL' src/shared/SettingsDefaultsManager.ts
+grep -n 'CLAUDE_MEM_GEMINI_BASE_URL\|CLAUDE_MEM_OPENAI_BASE_URL' src/shared/SettingsDefaultsManager.ts
 
 # Check agent implementations
-grep -n 'getGeminiBaseUrl\|getOpenRouterBaseUrl' src/services/worker/GeminiAgent.ts src/services/worker/OpenRouterAgent.ts
+grep -n 'getGeminiBaseUrl\|getOpenAIBaseUrl' src/services/worker/GeminiAgent.ts src/services/worker/OpenAIAgent.ts
 
 # Check security controls
 grep -n 'requireLocalhost' src/services/worker/http/routes/SettingsRoutes.ts
 grep -n 'localhostPatterns' src/services/worker/http/middleware.ts
 
 # Check UI implementation
-grep -n 'CLAUDE_MEM_GEMINI_BASE_URL\|CLAUDE_MEM_OPENROUTER_BASE_URL' src/ui/viewer/components/ContextSettingsModal.tsx
+grep -n 'CLAUDE_MEM_GEMINI_BASE_URL\|CLAUDE_MEM_OPENAI_BASE_URL' src/ui/viewer/components/ContextSettingsModal.tsx
 ```
 
 **Documentation**:
@@ -401,6 +410,70 @@ grep -n 'CLAUDE_MEM_GEMINI_BASE_URL\|CLAUDE_MEM_OPENROUTER_BASE_URL' src/ui/view
 - `docs/public/usage/openrouter-provider.mdx` - Custom API Endpoints section
 - `docs/public/configuration.mdx` - Settings reference updated
 - `docs/public/architecture/custom-api-endpoints.mdx` - Full implementation plan
+
+---
+
+### Category K: Dynamic Model Selection (Priority 7)
+
+**Problem**: Users with custom API endpoints couldn't dynamically fetch available models, and the "OpenRouter" naming was too specific for a provider that supports any OpenAI-compatible API.
+
+**Solution**: Three-phase implementation:
+1. **Phase 1a: URL Normalization** - Helper functions to handle various URL formats
+2. **Phase 1b: Dynamic Model Fetching** - Worker endpoint and UI for fetching available models
+3. **Phase 2: OpenRouter → OpenAI Rename** - Generalize naming and add settings migration
+
+**Files**:
+| File | Change |
+|------|--------|
+| `src/utils/url-utils.ts` | NEW - `normalizeBaseUrl()`, `buildGeminiApiUrl()`, `buildOpenAIApiUrl()` helpers |
+| `src/services/worker/GeminiAgent.ts` | Use `buildGeminiApiUrl()`, widen `GeminiModel` type, add `DEFAULT_RPM` fallback |
+| `src/services/worker/OpenAIAgent.ts` | Renamed from `OpenRouterAgent.ts`, updated all internal references |
+| `src/services/worker/http/routes/SettingsRoutes.ts` | Add `GET /api/models` endpoint, update key names to OPENAI |
+| `src/services/worker/http/routes/SessionRoutes.ts` | Update `startGeneratorWithProvider()` for `'openai'` provider |
+| `src/services/worker-service.ts` | Update `OpenAIAgent` import and instantiation |
+| `src/services/worker-types.ts` | Update `ActiveSession.currentProvider` type |
+| `src/shared/SettingsDefaultsManager.ts` | Add migration function for OPENROUTER → OPENAI keys |
+| `src/ui/viewer/hooks/useModelFetch.ts` | NEW - Hook for model fetching with localStorage caching |
+| `src/ui/viewer/constants/api.ts` | Add `MODELS` endpoint constant |
+| `src/ui/viewer/types.ts` | Rename OPENROUTER fields to OPENAI |
+| `src/ui/viewer/constants/settings.ts` | Rename OPENROUTER constants to OPENAI |
+| `src/ui/viewer/hooks/useSettings.ts` | Rename OPENROUTER fields to OPENAI |
+| `src/ui/viewer/components/ContextSettingsModal.tsx` | Add "Fetch Models" button, update labels to "OpenAI Compatible" |
+| `src/services/worker/agents/types.ts` | Update comments for OpenAI terminology |
+| `README.md` | Document the rename and migration |
+
+**Settings Migration** (automatic on first load):
+```
+CLAUDE_MEM_OPENROUTER_API_KEY    → CLAUDE_MEM_OPENAI_API_KEY
+CLAUDE_MEM_OPENROUTER_MODEL      → CLAUDE_MEM_OPENAI_MODEL
+CLAUDE_MEM_OPENROUTER_BASE_URL   → CLAUDE_MEM_OPENAI_BASE_URL
+CLAUDE_MEM_OPENROUTER_SITE_URL   → CLAUDE_MEM_OPENAI_SITE_URL
+CLAUDE_MEM_OPENROUTER_APP_NAME   → CLAUDE_MEM_OPENAI_APP_NAME
+CLAUDE_MEM_PROVIDER=openrouter   → CLAUDE_MEM_PROVIDER=openai
+```
+
+**Dynamic Model Fetching**:
+- `GET /api/models?provider=gemini|openai` - Worker endpoint (localhost-only)
+- Fetches from custom base URL configured in settings
+- Results cached in localStorage (24h TTL, invalidates on API key change)
+- Graceful fallback to text input if fetch fails
+
+**Verification**:
+```bash
+# Check URL normalization helper
+grep -n 'normalizeBaseUrl' src/utils/url-utils.ts
+
+# Check migration function
+grep -n 'openRouterMigrationMap' src/shared/SettingsDefaultsManager.ts
+
+# Check model fetching endpoint
+grep -n "GET.*api/models" src/services/worker/http/routes/SettingsRoutes.ts
+
+# Check provider type updated
+grep -n "currentProvider" src/services/worker-types.ts
+```
+
+**Plan**: `docs/plans/2026-01-22-dynamic-model-selection.md`
 
 ---
 
@@ -516,9 +589,9 @@ find . -name "CLAUDE.md" -exec grep -l "No recent activity" {} \;  # Should retu
 
 ---
 
-### Category J: Gemini/OpenRouter memorySessionId Fix (Priority 3)
+### Category J: Gemini/OpenAI memorySessionId Fix (Priority 3)
 
-**Problem**: Non-Claude providers (Gemini, OpenRouter) crash with "Cannot store observations: memorySessionId not yet captured" when starting fresh sessions. The ResponseProcessor requires memorySessionId to store observations, but only Claude SDK captures it from its response. Gemini/OpenRouter never set it, causing crashes and silent fallback to Claude SDK.
+**Problem**: Non-Claude providers (Gemini, OpenAI-compatible) crash with "Cannot store observations: memorySessionId not yet captured" when starting fresh sessions. The ResponseProcessor requires memorySessionId to store observations, but only Claude SDK captures it from its response. Gemini/OpenAI never set it, causing crashes and silent fallback to Claude SDK.
 
 **Solution**: Generate a UUID for memorySessionId at the start of session processing if it's not already set, and save it to the database.
 
@@ -526,12 +599,12 @@ find . -name "CLAUDE.md" -exec grep -l "No recent activity" {} \;  # Should retu
 | File | Change |
 |------|--------|
 | `src/services/worker/GeminiAgent.ts:137-144` | Generate UUID if memorySessionId is null, save to database |
-| `src/services/worker/OpenRouterAgent.ts:96-103` | Generate UUID if memorySessionId is null, save to database |
+| `src/services/worker/OpenAIAgent.ts:96-103` | Generate UUID if memorySessionId is null, save to database |
 
 **Code Added** (both files):
 ```typescript
 // CRITICAL: Ensure memorySessionId is set for non-Claude providers
-// Claude SDK captures this from its response, but Gemini/OpenRouter need to generate it
+// Claude SDK captures this from its response, but Gemini/OpenAI need to generate it
 if (!session.memorySessionId) {
   const generatedId = crypto.randomUUID();
   session.memorySessionId = generatedId;
@@ -545,7 +618,7 @@ if (!session.memorySessionId) {
 **Verification**:
 ```bash
 # Check fix is in place
-grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/worker/OpenRouterAgent.ts
+grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/worker/OpenAIAgent.ts
 
 # After worker restart, new Gemini sessions should show:
 # [SDK] Generated memorySessionId for Gemini session | sessionDbId=X | memorySessionId=UUID

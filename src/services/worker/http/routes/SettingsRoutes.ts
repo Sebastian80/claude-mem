@@ -18,6 +18,20 @@ import { BaseRouteHandler } from '../BaseRouteHandler.js';
 import { SettingsDefaultsManager } from '../../../../shared/SettingsDefaultsManager.js';
 import { clearPortCache } from '../../../../shared/worker-utils.js';
 import { requireLocalhost } from '../middleware.js';
+import { normalizeBaseUrl, buildOpenAIApiUrl } from '../../../../utils/url-utils.js';
+
+// Known Gemini models for validation (custom endpoints can use any model)
+const KNOWN_GEMINI_MODELS = [
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-3-flash',
+];
+
+// Timeout for model fetching (5 seconds)
+const MODEL_FETCH_TIMEOUT_MS = 5000;
 
 export class SettingsRoutes extends BaseRouteHandler {
   constructor(
@@ -30,6 +44,9 @@ export class SettingsRoutes extends BaseRouteHandler {
     // Settings endpoints (localhost-only to protect API keys)
     app.get('/api/settings', requireLocalhost, this.handleGetSettings.bind(this));
     app.post('/api/settings', requireLocalhost, this.handleUpdateSettings.bind(this));
+
+    // Dynamic model fetching (localhost-only, fetches from custom endpoints)
+    app.get('/api/models', requireLocalhost, this.handleGetModels.bind(this));
 
     // MCP toggle endpoints
     app.get('/api/mcp/status', this.handleGetMcpStatus.bind(this));
@@ -94,15 +111,15 @@ export class SettingsRoutes extends BaseRouteHandler {
       'CLAUDE_MEM_GEMINI_MODEL',
       'CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED',
       // OpenRouter Configuration
-      'CLAUDE_MEM_OPENROUTER_API_KEY',
-      'CLAUDE_MEM_OPENROUTER_MODEL',
-      'CLAUDE_MEM_OPENROUTER_SITE_URL',
-      'CLAUDE_MEM_OPENROUTER_APP_NAME',
-      'CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES',
-      'CLAUDE_MEM_OPENROUTER_MAX_TOKENS',
+      'CLAUDE_MEM_OPENAI_API_KEY',
+      'CLAUDE_MEM_OPENAI_MODEL',
+      'CLAUDE_MEM_OPENAI_SITE_URL',
+      'CLAUDE_MEM_OPENAI_APP_NAME',
+      'CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES',
+      'CLAUDE_MEM_OPENAI_MAX_TOKENS',
       // Custom API Endpoints
       'CLAUDE_MEM_GEMINI_BASE_URL',
-      'CLAUDE_MEM_OPENROUTER_BASE_URL',
+      'CLAUDE_MEM_OPENAI_BASE_URL',
       // System Configuration
       'CLAUDE_MEM_DATA_DIR',
       'CLAUDE_MEM_LOG_LEVEL',
@@ -139,6 +156,135 @@ export class SettingsRoutes extends BaseRouteHandler {
 
     logger.info('WORKER', 'Settings updated');
     res.json({ success: true, message: 'Settings updated successfully' });
+  });
+
+  /**
+   * GET /api/models - Fetch available models from a custom endpoint
+   * Query params: provider (gemini | openai)
+   * Returns: { models: string[], error?: string }
+   *
+   * This endpoint fetches models from custom API endpoints to avoid CORS issues
+   * in the browser. Only available when a custom base URL is configured.
+   */
+  private handleGetModels = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const provider = req.query.provider as string;
+
+    if (!provider || !['gemini', 'openai'].includes(provider)) {
+      res.status(400).json({ models: [], error: 'Invalid provider. Must be "gemini" or "openai"' });
+      return;
+    }
+
+    try {
+      const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+      let modelsUrl: string;
+      const headers: Record<string, string> = {};
+
+      if (provider === 'gemini') {
+        const baseUrl = settings.CLAUDE_MEM_GEMINI_BASE_URL;
+        if (!baseUrl) {
+          res.json({ models: [], error: 'No custom Gemini base URL configured' });
+          return;
+        }
+
+        // Validate URL scheme (security: only allow http/https)
+        try {
+          const parsed = new URL(baseUrl);
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            res.json({ models: [], error: 'Base URL must use http:// or https://' });
+            return;
+          }
+        } catch {
+          res.json({ models: [], error: 'Invalid base URL format' });
+          return;
+        }
+
+        // Use v1/models endpoint (OpenAI-compatible standard that many proxies support)
+        modelsUrl = normalizeBaseUrl(baseUrl, 'v1/models');
+
+        // Add API key if configured (as query param for Gemini-style endpoints)
+        const apiKey = settings.CLAUDE_MEM_GEMINI_API_KEY;
+        if (apiKey) {
+          modelsUrl += `?key=${encodeURIComponent(apiKey)}`;
+        }
+      } else {
+        // OpenAI-compatible provider
+        const baseUrl = settings.CLAUDE_MEM_OPENAI_BASE_URL;
+        if (!baseUrl) {
+          res.json({ models: [], error: 'No OpenAI-compatible base URL configured' });
+          return;
+        }
+
+        // Validate URL scheme
+        try {
+          const parsed = new URL(baseUrl);
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            res.json({ models: [], error: 'Base URL must use http:// or https://' });
+            return;
+          }
+        } catch {
+          res.json({ models: [], error: 'Invalid base URL format' });
+          return;
+        }
+
+        modelsUrl = buildOpenAIApiUrl(baseUrl, 'models');
+
+        // Add Authorization header for OpenAI-style endpoints
+        const apiKey = settings.CLAUDE_MEM_OPENAI_API_KEY;
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+      }
+
+      // Fetch with timeout using AbortController
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), MODEL_FETCH_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(modelsUrl, {
+          headers,
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          // Don't leak the URL (may contain API key for Gemini)
+          logger.warn('SETTINGS', 'Model fetch failed', { provider, status: response.status });
+          res.json({ models: [], error: `Model fetch failed: HTTP ${response.status}` });
+          return;
+        }
+
+        const data = await response.json();
+
+        // Handle OpenAI-style response format: { data: [{ id: "model-name", ... }] }
+        let models: string[] = [];
+        if (Array.isArray(data?.data)) {
+          models = data.data
+            .map((m: any) => m.id || m.name)
+            .filter((id: any): id is string => typeof id === 'string');
+        } else if (Array.isArray(data?.models)) {
+          // Handle both { models: ["model1", "model2"] } and { models: [{ id: "model1" }] }
+          models = data.models
+            .map((m: any) => typeof m === 'string' ? m : (m.id || m.name))
+            .filter((id: any): id is string => typeof id === 'string');
+        }
+
+        logger.debug('SETTINGS', 'Models fetched successfully', { provider, count: models.length });
+        res.json({ models });
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+
+        if (fetchError.name === 'AbortError') {
+          res.json({ models: [], error: 'Request timed out' });
+        } else {
+          // Sanitize error message (don't leak URL)
+          logger.warn('SETTINGS', 'Model fetch error', { provider, error: fetchError.message });
+          res.json({ models: [], error: 'Failed to connect to endpoint' });
+        }
+      }
+    } catch (error: any) {
+      logger.error('SETTINGS', 'Model fetch handler error', { provider }, error);
+      res.json({ models: [], error: 'Internal error' });
+    }
   });
 
   /**
@@ -235,17 +381,22 @@ export class SettingsRoutes extends BaseRouteHandler {
   private validateSettings(settings: any): { valid: boolean; error?: string } {
     // Validate CLAUDE_MEM_PROVIDER
     if (settings.CLAUDE_MEM_PROVIDER) {
-      const validProviders = ['claude', 'gemini', 'openrouter'];
+      // Accept 'openrouter' for backwards compatibility (migrated to 'openai')
+      const validProviders = ['claude', 'gemini', 'openai', 'openrouter'];
       if (!validProviders.includes(settings.CLAUDE_MEM_PROVIDER)) {
-        return { valid: false, error: 'CLAUDE_MEM_PROVIDER must be "claude", "gemini", or "openrouter"' };
+        return { valid: false, error: 'CLAUDE_MEM_PROVIDER must be "claude", "gemini", or "openai"' };
       }
     }
 
     // Validate CLAUDE_MEM_GEMINI_MODEL
+    // Allow any model string if a custom base URL is configured (custom endpoints may have different models)
     if (settings.CLAUDE_MEM_GEMINI_MODEL) {
-      const validGeminiModels = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3-flash'];
-      if (!validGeminiModels.includes(settings.CLAUDE_MEM_GEMINI_MODEL)) {
-        return { valid: false, error: 'CLAUDE_MEM_GEMINI_MODEL must be one of: gemini-2.5-flash-lite, gemini-2.5-flash, gemini-3-flash' };
+      const hasCustomBaseUrl = !!settings.CLAUDE_MEM_GEMINI_BASE_URL;
+      if (!hasCustomBaseUrl && !KNOWN_GEMINI_MODELS.includes(settings.CLAUDE_MEM_GEMINI_MODEL)) {
+        return {
+          valid: false,
+          error: `CLAUDE_MEM_GEMINI_MODEL must be one of: ${KNOWN_GEMINI_MODELS.join(', ')} (or configure a custom base URL for other models)`
+        };
       }
     }
 
@@ -330,30 +481,30 @@ export class SettingsRoutes extends BaseRouteHandler {
       }
     }
 
-    // Validate CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES
-    if (settings.CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES) {
-      const count = parseInt(settings.CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES, 10);
+    // Validate CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES
+    if (settings.CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES) {
+      const count = parseInt(settings.CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES, 10);
       if (isNaN(count) || count < 1 || count > 100) {
-        return { valid: false, error: 'CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES must be between 1 and 100' };
+        return { valid: false, error: 'CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES must be between 1 and 100' };
       }
     }
 
-    // Validate CLAUDE_MEM_OPENROUTER_MAX_TOKENS
-    if (settings.CLAUDE_MEM_OPENROUTER_MAX_TOKENS) {
-      const tokens = parseInt(settings.CLAUDE_MEM_OPENROUTER_MAX_TOKENS, 10);
+    // Validate CLAUDE_MEM_OPENAI_MAX_TOKENS
+    if (settings.CLAUDE_MEM_OPENAI_MAX_TOKENS) {
+      const tokens = parseInt(settings.CLAUDE_MEM_OPENAI_MAX_TOKENS, 10);
       if (isNaN(tokens) || tokens < 1000 || tokens > 1000000) {
-        return { valid: false, error: 'CLAUDE_MEM_OPENROUTER_MAX_TOKENS must be between 1000 and 1000000' };
+        return { valid: false, error: 'CLAUDE_MEM_OPENAI_MAX_TOKENS must be between 1000 and 1000000' };
       }
     }
 
-    // Validate CLAUDE_MEM_OPENROUTER_SITE_URL if provided
-    if (settings.CLAUDE_MEM_OPENROUTER_SITE_URL) {
+    // Validate CLAUDE_MEM_OPENAI_SITE_URL if provided
+    if (settings.CLAUDE_MEM_OPENAI_SITE_URL) {
       try {
-        new URL(settings.CLAUDE_MEM_OPENROUTER_SITE_URL);
+        new URL(settings.CLAUDE_MEM_OPENAI_SITE_URL);
       } catch (error) {
         // Invalid URL format
-        logger.debug('SETTINGS', 'Invalid URL format', { url: settings.CLAUDE_MEM_OPENROUTER_SITE_URL, error: error instanceof Error ? error.message : String(error) });
-        return { valid: false, error: 'CLAUDE_MEM_OPENROUTER_SITE_URL must be a valid URL' };
+        logger.debug('SETTINGS', 'Invalid URL format', { url: settings.CLAUDE_MEM_OPENAI_SITE_URL, error: error instanceof Error ? error.message : String(error) });
+        return { valid: false, error: 'CLAUDE_MEM_OPENAI_SITE_URL must be a valid URL' };
       }
     }
 
@@ -391,12 +542,12 @@ export class SettingsRoutes extends BaseRouteHandler {
       }
     }
 
-    // Validate CLAUDE_MEM_OPENROUTER_BASE_URL if provided
-    if (settings.CLAUDE_MEM_OPENROUTER_BASE_URL) {
+    // Validate CLAUDE_MEM_OPENAI_BASE_URL if provided
+    if (settings.CLAUDE_MEM_OPENAI_BASE_URL) {
       // Trim whitespace
-      const trimmed = settings.CLAUDE_MEM_OPENROUTER_BASE_URL.trim();
-      if (trimmed !== settings.CLAUDE_MEM_OPENROUTER_BASE_URL) {
-        return { valid: false, error: 'CLAUDE_MEM_OPENROUTER_BASE_URL contains leading/trailing whitespace' };
+      const trimmed = settings.CLAUDE_MEM_OPENAI_BASE_URL.trim();
+      if (trimmed !== settings.CLAUDE_MEM_OPENAI_BASE_URL) {
+        return { valid: false, error: 'CLAUDE_MEM_OPENAI_BASE_URL contains leading/trailing whitespace' };
       }
 
       if (trimmed) {
@@ -405,22 +556,22 @@ export class SettingsRoutes extends BaseRouteHandler {
 
           // Reject credentials in URL
           if (parsed.username || parsed.password) {
-            return { valid: false, error: 'CLAUDE_MEM_OPENROUTER_BASE_URL must not contain credentials (username:password)' };
+            return { valid: false, error: 'CLAUDE_MEM_OPENAI_BASE_URL must not contain credentials (username:password)' };
           }
 
           // Require http or https
           if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-            return { valid: false, error: 'CLAUDE_MEM_OPENROUTER_BASE_URL must use http:// or https:// protocol' };
+            return { valid: false, error: 'CLAUDE_MEM_OPENAI_BASE_URL must use http:// or https:// protocol' };
           }
 
           // Warn on http (insecure)
           if (parsed.protocol === 'http:') {
-            logger.warn('SETTINGS', 'Insecure http:// protocol used for CLAUDE_MEM_OPENROUTER_BASE_URL - API keys will be sent in plaintext', {
+            logger.warn('SETTINGS', 'Insecure http:// protocol used for CLAUDE_MEM_OPENAI_BASE_URL - API keys will be sent in plaintext', {
               url: trimmed
             });
           }
         } catch (error) {
-          return { valid: false, error: 'CLAUDE_MEM_OPENROUTER_BASE_URL must be a valid URL' };
+          return { valid: false, error: 'CLAUDE_MEM_OPENAI_BASE_URL must be a valid URL' };
         }
       }
     }

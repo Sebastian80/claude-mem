@@ -1,7 +1,8 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { Settings } from '../types';
 import { TerminalPreview } from './TerminalPreview';
 import { useContextPreview } from '../hooks/useContextPreview';
+import { useModelFetch } from '../hooks/useModelFetch';
 
 interface ContextSettingsModalProps {
   isOpen: boolean;
@@ -193,6 +194,42 @@ export function ContextSettingsModal({
 
   // Get context preview based on current form state
   const { preview, isLoading, error, projects, selectedProject, setSelectedProject } = useContextPreview(formState);
+
+  // Model fetching for Gemini custom endpoints
+  // Note: Uses SAVED settings (via worker), not form state
+  const {
+    models: geminiModels,
+    isFetching: isFetchingGeminiModels,
+    error: geminiModelsError,
+    fetchModels: fetchGeminiModels,
+    clearCache: clearGeminiModelsCache,
+  } = useModelFetch(
+    'gemini',
+    settings.CLAUDE_MEM_GEMINI_BASE_URL || '',  // Use saved settings for cache key
+    settings.CLAUDE_MEM_GEMINI_API_KEY || ''
+  );
+
+  // Track if user wants to use custom model input (when no models fetched or fetch failed)
+  const [useCustomGeminiModel, setUseCustomGeminiModel] = useState(false);
+
+  // Determine if we should show the fetch button (only when custom base URL is set)
+  const hasGeminiCustomUrl = !!formState.CLAUDE_MEM_GEMINI_BASE_URL;
+
+  // Check if Gemini settings have unsaved changes (would cause fetch to use wrong values)
+  const hasUnsavedGeminiChanges =
+    formState.CLAUDE_MEM_GEMINI_BASE_URL !== settings.CLAUDE_MEM_GEMINI_BASE_URL ||
+    formState.CLAUDE_MEM_GEMINI_API_KEY !== settings.CLAUDE_MEM_GEMINI_API_KEY;
+
+  // Clear models when saved settings change (stale data prevention)
+  // Skip the first run to preserve localStorage cache on initial mount
+  const isFirstGeminiSettingsRun = useRef(true);
+  useEffect(() => {
+    if (isFirstGeminiSettingsRun.current) {
+      isFirstGeminiSettingsRun.current = false;
+      return;
+    }
+    clearGeminiModelsCache();
+  }, [settings.CLAUDE_MEM_GEMINI_BASE_URL, settings.CLAUDE_MEM_GEMINI_API_KEY, clearGeminiModelsCache]);
 
   const updateSetting = useCallback((key: keyof Settings, value: string) => {
     const newState = { ...formState, [key]: value };
@@ -422,7 +459,7 @@ export function ContextSettingsModal({
                 >
                   <option value="claude">Claude (uses your Claude account)</option>
                   <option value="gemini">Gemini (uses API key)</option>
-                  <option value="openrouter">OpenRouter (multi-model)</option>
+                  <option value="openai">OpenAI Compatible (multi-provider)</option>
                 </select>
               </FormField>
 
@@ -457,16 +494,62 @@ export function ContextSettingsModal({
                   </FormField>
                   <FormField
                     label="Gemini Model"
-                    tooltip="Gemini model used for generating observations"
+                    tooltip={hasGeminiCustomUrl
+                      ? "Select from fetched models or enter a custom model name"
+                      : "Gemini model used for generating observations"
+                    }
                   >
-                    <select
-                      value={formState.CLAUDE_MEM_GEMINI_MODEL || 'gemini-2.5-flash-lite'}
-                      onChange={(e) => updateSetting('CLAUDE_MEM_GEMINI_MODEL', e.target.value)}
-                    >
-                      <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (10 RPM free)</option>
-                      <option value="gemini-2.5-flash">gemini-2.5-flash (5 RPM free)</option>
-                      <option value="gemini-3-flash">gemini-3-flash (5 RPM free)</option>
-                    </select>
+                    {/* Show dropdown if we have fetched models and user hasn't chosen custom input */}
+                    {hasGeminiCustomUrl && geminiModels.length > 0 && !useCustomGeminiModel ? (
+                      <div className="model-select-wrapper">
+                        <select
+                          value={formState.CLAUDE_MEM_GEMINI_MODEL || ''}
+                          onChange={(e) => updateSetting('CLAUDE_MEM_GEMINI_MODEL', e.target.value)}
+                        >
+                          {geminiModels.map(model => (
+                            <option key={model} value={model}>{model}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="text-btn"
+                          onClick={() => setUseCustomGeminiModel(true)}
+                          title="Enter a custom model name"
+                        >
+                          Custom
+                        </button>
+                      </div>
+                    ) : hasGeminiCustomUrl ? (
+                      /* Text input for custom endpoints (fallback or user preference) */
+                      <div className="model-input-wrapper">
+                        <input
+                          type="text"
+                          value={formState.CLAUDE_MEM_GEMINI_MODEL || ''}
+                          onChange={(e) => updateSetting('CLAUDE_MEM_GEMINI_MODEL', e.target.value)}
+                          placeholder="Enter model name..."
+                        />
+                        {geminiModels.length > 0 && (
+                          <button
+                            type="button"
+                            className="text-btn"
+                            onClick={() => setUseCustomGeminiModel(false)}
+                            title="Select from fetched models"
+                          >
+                            List
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      /* Default dropdown for official Gemini endpoint */
+                      <select
+                        value={formState.CLAUDE_MEM_GEMINI_MODEL || 'gemini-2.5-flash-lite'}
+                        onChange={(e) => updateSetting('CLAUDE_MEM_GEMINI_MODEL', e.target.value)}
+                      >
+                        <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (10 RPM free)</option>
+                        <option value="gemini-2.5-flash">gemini-2.5-flash (5 RPM free)</option>
+                        <option value="gemini-3-flash">gemini-3-flash (5 RPM free)</option>
+                      </select>
+                    )}
                   </FormField>
                   <div className="toggle-group" style={{ marginTop: '8px' }}>
                     <ToggleSwitch
@@ -479,72 +562,101 @@ export function ContextSettingsModal({
                   </div>
                   <FormField
                     label="Custom Base URL (Optional)"
-                    tooltip="Override the default Gemini models base URL. Leave empty to use default. Example: https://your-proxy.com/v1beta/models (model name will be appended automatically)"
+                    tooltip="Override the default Gemini endpoint. Leave empty to use default. Supports both host-only (http://proxy:3000/) and full path formats."
                   >
                     <input
                       type="text"
                       value={formState.CLAUDE_MEM_GEMINI_BASE_URL || ''}
                       onChange={(e) => updateSetting('CLAUDE_MEM_GEMINI_BASE_URL', e.target.value)}
-                      placeholder="https://generativelanguage.googleapis.com/v1beta/models"
+                      placeholder="https://your-proxy.com/ or http://localhost:3000/"
                     />
                   </FormField>
+                  {/* Fetch Models button - only visible when custom base URL is set */}
+                  {hasGeminiCustomUrl && (
+                    <div className="fetch-models-row">
+                      <button
+                        type="button"
+                        className="fetch-models-btn"
+                        onClick={fetchGeminiModels}
+                        disabled={isFetchingGeminiModels || hasUnsavedGeminiChanges}
+                        title={hasUnsavedGeminiChanges ? 'Save settings first to fetch models' : undefined}
+                      >
+                        {isFetchingGeminiModels ? 'Fetching...' : 'Fetch Models'}
+                      </button>
+                      {hasUnsavedGeminiChanges && (
+                        <span className="fetch-warning">
+                          Save first
+                        </span>
+                      )}
+                      {!hasUnsavedGeminiChanges && geminiModelsError && (
+                        <span className="fetch-error" title={geminiModelsError}>
+                          {geminiModelsError}
+                        </span>
+                      )}
+                      {!hasUnsavedGeminiChanges && !geminiModelsError && geminiModels.length > 0 && (
+                        <span className="fetch-success">
+                          {geminiModels.length} models found
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
 
-              {formState.CLAUDE_MEM_PROVIDER === 'openrouter' && (
+              {formState.CLAUDE_MEM_PROVIDER === 'openai' && (
                 <>
                   <FormField
-                    label="OpenRouter API Key"
-                    tooltip="Your OpenRouter API key from openrouter.ai (or set OPENROUTER_API_KEY env var)"
+                    label="API Key"
+                    tooltip="Your API key for the OpenAI-compatible provider (OpenRouter, local LLMs, etc.)"
                   >
                     <input
                       type="password"
-                      value={formState.CLAUDE_MEM_OPENROUTER_API_KEY || ''}
-                      onChange={(e) => updateSetting('CLAUDE_MEM_OPENROUTER_API_KEY', e.target.value)}
-                      placeholder="Enter OpenRouter API key..."
+                      value={formState.CLAUDE_MEM_OPENAI_API_KEY || ''}
+                      onChange={(e) => updateSetting('CLAUDE_MEM_OPENAI_API_KEY', e.target.value)}
+                      placeholder="Enter API key..."
                     />
                   </FormField>
                   <FormField
-                    label="OpenRouter Model"
-                    tooltip="Model identifier from OpenRouter (e.g., anthropic/claude-3.5-sonnet, google/gemini-2.0-flash-thinking-exp)"
+                    label="Model"
+                    tooltip="Model identifier (e.g., xiaomi/mimo-v2-flash:free for OpenRouter, or gpt-4 for OpenAI)"
                   >
                     <input
                       type="text"
-                      value={formState.CLAUDE_MEM_OPENROUTER_MODEL || 'xiaomi/mimo-v2-flash:free'}
-                      onChange={(e) => updateSetting('CLAUDE_MEM_OPENROUTER_MODEL', e.target.value)}
+                      value={formState.CLAUDE_MEM_OPENAI_MODEL || 'xiaomi/mimo-v2-flash:free'}
+                      onChange={(e) => updateSetting('CLAUDE_MEM_OPENAI_MODEL', e.target.value)}
                       placeholder="e.g., xiaomi/mimo-v2-flash:free"
                     />
                   </FormField>
                   <FormField
                     label="Site URL (Optional)"
-                    tooltip="Your site URL for OpenRouter analytics (optional)"
+                    tooltip="Your site URL for analytics (optional, used by OpenRouter)"
                   >
                     <input
                       type="text"
-                      value={formState.CLAUDE_MEM_OPENROUTER_SITE_URL || ''}
-                      onChange={(e) => updateSetting('CLAUDE_MEM_OPENROUTER_SITE_URL', e.target.value)}
+                      value={formState.CLAUDE_MEM_OPENAI_SITE_URL || ''}
+                      onChange={(e) => updateSetting('CLAUDE_MEM_OPENAI_SITE_URL', e.target.value)}
                       placeholder="https://yoursite.com"
                     />
                   </FormField>
                   <FormField
                     label="App Name (Optional)"
-                    tooltip="Your app name for OpenRouter analytics (optional)"
+                    tooltip="Your app name for analytics (optional, used by OpenRouter)"
                   >
                     <input
                       type="text"
-                      value={formState.CLAUDE_MEM_OPENROUTER_APP_NAME || 'claude-mem'}
-                      onChange={(e) => updateSetting('CLAUDE_MEM_OPENROUTER_APP_NAME', e.target.value)}
+                      value={formState.CLAUDE_MEM_OPENAI_APP_NAME || 'claude-mem'}
+                      onChange={(e) => updateSetting('CLAUDE_MEM_OPENAI_APP_NAME', e.target.value)}
                       placeholder="claude-mem"
                     />
                   </FormField>
                   <FormField
-                    label="Custom Endpoint URL (Optional)"
-                    tooltip="Override the default OpenRouter endpoint. Must be the full chat completions URL. Leave empty to use default. Example: https://your-proxy.com/api/v1/chat/completions"
+                    label="Base URL"
+                    tooltip="OpenAI-compatible API endpoint. Default is OpenRouter. For local LLMs, use e.g., http://localhost:11434/v1/chat/completions"
                   >
                     <input
                       type="text"
-                      value={formState.CLAUDE_MEM_OPENROUTER_BASE_URL || ''}
-                      onChange={(e) => updateSetting('CLAUDE_MEM_OPENROUTER_BASE_URL', e.target.value)}
+                      value={formState.CLAUDE_MEM_OPENAI_BASE_URL || ''}
+                      onChange={(e) => updateSetting('CLAUDE_MEM_OPENAI_BASE_URL', e.target.value)}
                       placeholder="https://openrouter.ai/api/v1/chat/completions"
                     />
                   </FormField>

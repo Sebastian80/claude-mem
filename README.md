@@ -77,6 +77,33 @@ For detailed architecture, see [docs/architecture/2026-01-10-BATCHING-AND-SDK-TH
 
 ---
 
+## OpenAI-Compatible Provider (v9.0.6+)
+
+Starting with v9.0.6, the "OpenRouter" provider has been renamed to "OpenAI Compatible" to better reflect its capabilities. This provider supports any OpenAI-compatible API endpoint, including:
+
+- **OpenRouter** (default) - Access to many models
+- **Local LLMs** - Ollama, LM Studio, vLLM, etc.
+- **Custom endpoints** - Any OpenAI-compatible API
+
+### Settings Migration
+
+Settings are automatically migrated on first run. The following keys have been renamed:
+
+| Old Key (v9.0.5) | New Key (v9.0.6+) |
+|------------------|-------------------|
+| `CLAUDE_MEM_OPENROUTER_API_KEY` | `CLAUDE_MEM_OPENAI_API_KEY` |
+| `CLAUDE_MEM_OPENROUTER_MODEL` | `CLAUDE_MEM_OPENAI_MODEL` |
+| `CLAUDE_MEM_OPENROUTER_BASE_URL` | `CLAUDE_MEM_OPENAI_BASE_URL` |
+| `CLAUDE_MEM_OPENROUTER_SITE_URL` | `CLAUDE_MEM_OPENAI_SITE_URL` |
+| `CLAUDE_MEM_OPENROUTER_APP_NAME` | `CLAUDE_MEM_OPENAI_APP_NAME` |
+| `CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES` | `CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES` |
+| `CLAUDE_MEM_OPENROUTER_MAX_TOKENS` | `CLAUDE_MEM_OPENAI_MAX_TOKENS` |
+| `CLAUDE_MEM_PROVIDER=openrouter` | `CLAUDE_MEM_PROVIDER=openai` |
+
+**Note:** The old `OPENROUTER_API_KEY` environment variable is still supported as a fallback.
+
+---
+
 ## Installation
 
 ```

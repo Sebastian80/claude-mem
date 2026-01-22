@@ -13,6 +13,7 @@
 import { DatabaseManager } from './DatabaseManager.js';
 import { SessionManager } from './SessionManager.js';
 import { logger } from '../../utils/logger.js';
+import { buildGeminiApiUrl } from '../../utils/url-utils.js';
 import { buildInitPrompt, buildObservationPrompt, buildSummaryPrompt, buildContinuationPrompt } from '../../sdk/prompts.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
@@ -29,8 +30,9 @@ import {
 // Gemini API endpoint (default, can be overridden via settings)
 const DEFAULT_GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-// Gemini model types (available via API)
-export type GeminiModel =
+// Gemini model types (known official models)
+// Custom endpoints may support additional models not in this list
+export type GeminiKnownModel =
   | 'gemini-2.5-flash-lite'
   | 'gemini-2.5-flash'
   | 'gemini-2.5-pro'
@@ -38,8 +40,13 @@ export type GeminiModel =
   | 'gemini-2.0-flash-lite'
   | 'gemini-3-flash';
 
+// Allow both known models and custom model strings for custom endpoints
+export type GeminiModel = GeminiKnownModel | (string & {});
+
 // Free tier RPM limits by model (requests per minute)
-const GEMINI_RPM_LIMITS: Record<GeminiModel, number> = {
+// Custom models use DEFAULT_RPM
+const DEFAULT_RPM = 5;
+const GEMINI_RPM_LIMITS: Record<GeminiKnownModel, number> = {
   'gemini-2.5-flash-lite': 10,
   'gemini-2.5-flash': 10,
   'gemini-2.5-pro': 5,
@@ -55,6 +62,7 @@ let lastRequestTime = 0;
  * Enforce RPM rate limit for Gemini free tier.
  * Waits the required time between requests based on model's RPM limit + 100ms safety buffer.
  * Skipped entirely if rate limiting is disabled (billing users with 1000+ RPM available).
+ * Unknown/custom models use DEFAULT_RPM (5 requests per minute).
  */
 async function enforceRateLimitForModel(model: GeminiModel, rateLimitingEnabled: boolean): Promise<void> {
   // Skip rate limiting if disabled (billing users with 1000+ RPM)
@@ -62,7 +70,8 @@ async function enforceRateLimitForModel(model: GeminiModel, rateLimitingEnabled:
     return;
   }
 
-  const rpm = GEMINI_RPM_LIMITS[model] || 5;
+  // Use known model RPM or default for custom models
+  const rpm = GEMINI_RPM_LIMITS[model as GeminiKnownModel] || DEFAULT_RPM;
   const minimumDelayMs = Math.ceil(60000 / rpm) + 100; // (60s / RPM) + 100ms safety buffer
 
   const now = Date.now();
@@ -321,19 +330,16 @@ export class GeminiAgent {
   }
 
   /**
-   * Get Gemini base URL from settings or environment
-   * Strips trailing slash to prevent double-slash in URL concatenation
+   * Get Gemini base URL from settings or environment.
+   * Returns the raw URL; normalization is handled by buildGeminiApiUrl.
    */
   private getGeminiBaseUrl(): string {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
 
     // Priority: settings > env var > default
-    let baseUrl = settings.CLAUDE_MEM_GEMINI_BASE_URL
+    return settings.CLAUDE_MEM_GEMINI_BASE_URL
       || (process.env.GEMINI_BASE_URL || '').trim()
       || DEFAULT_GEMINI_API_URL;
-
-    // Strip trailing slash to prevent double-slash when concatenating
-    return baseUrl.replace(/\/$/, '');
   }
 
   /**
@@ -354,8 +360,9 @@ export class GeminiAgent {
       totalChars
     });
 
+    // Use the URL normalization helper to handle different base URL formats
     const baseUrl = this.getGeminiBaseUrl();
-    const url = `${baseUrl}/${model}:generateContent?key=${apiKey}`;
+    const url = buildGeminiApiUrl(baseUrl, model, 'generateContent', apiKey);
 
     // Enforce RPM rate limit for free tier (skipped if rate limiting disabled)
     await enforceRateLimitForModel(model, rateLimitingEnabled);
@@ -401,10 +408,15 @@ export class GeminiAgent {
     // API key: check settings first, then environment variable
     const apiKey = settings.CLAUDE_MEM_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
 
-    // Model: from settings or default, with validation
-    const defaultModel: GeminiModel = 'gemini-2.5-flash';
+    // Model: from settings or default
+    const defaultModel: GeminiKnownModel = 'gemini-2.5-flash';
     const configuredModel = settings.CLAUDE_MEM_GEMINI_MODEL || defaultModel;
-    const validModels: GeminiModel[] = [
+
+    // Check if using a custom base URL (allows custom models)
+    const hasCustomBaseUrl = !!(settings.CLAUDE_MEM_GEMINI_BASE_URL || process.env.GEMINI_BASE_URL);
+
+    // Known official models for validation
+    const knownModels: GeminiKnownModel[] = [
       'gemini-2.5-flash-lite',
       'gemini-2.5-flash',
       'gemini-2.5-pro',
@@ -414,12 +426,21 @@ export class GeminiAgent {
     ];
 
     let model: GeminiModel;
-    if (validModels.includes(configuredModel as GeminiModel)) {
-      model = configuredModel as GeminiModel;
-    } else {
-      logger.warn('SDK', `Invalid Gemini model "${configuredModel}", falling back to ${defaultModel}`, {
+    if (knownModels.includes(configuredModel as GeminiKnownModel)) {
+      // Known model - use as-is
+      model = configuredModel as GeminiKnownModel;
+    } else if (hasCustomBaseUrl) {
+      // Custom model with custom endpoint - allow it
+      logger.debug('SDK', `Using custom model "${configuredModel}" with custom endpoint`, {
         configured: configuredModel,
-        validModels,
+        hasCustomBaseUrl,
+      });
+      model = configuredModel;
+    } else {
+      // Unknown model without custom endpoint - fall back to default
+      logger.warn('SDK', `Unknown Gemini model "${configuredModel}" without custom endpoint, falling back to ${defaultModel}`, {
+        configured: configuredModel,
+        knownModels,
       });
       model = defaultModel;
     }
