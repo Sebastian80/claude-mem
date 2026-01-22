@@ -134,9 +134,9 @@ interface ParsedObservation {
  * - Ditto marks for repeated times
  *
  * @param timelineText - Raw API response text
- * @returns Formatted markdown with date/file grouping
+ * @returns Formatted markdown with date/file grouping, or null if no observations
  */
-export function formatTimelineForClaudeMd(timelineText: string): string {
+export function formatTimelineForClaudeMd(timelineText: string): string | null {
   const lines: string[] = [];
   lines.push('# Recent Activity');
   lines.push('');
@@ -207,8 +207,8 @@ export function formatTimelineForClaudeMd(timelineText: string): string {
   }
 
   if (observations.length === 0) {
-    lines.push('*No recent activity*');
-    return lines.join('\n');
+    // Return null to signal no content - caller should skip writing the file
+    return null;
   }
 
   // Group by date
@@ -260,8 +260,15 @@ export async function updateFolderClaudeMdFiles(
   port: number,
   projectRoot?: string
 ): Promise<void> {
-  // Load settings to get configurable observation limit
+  // Load settings to get configurable observation limit and feature toggle
   const settings = SettingsDefaultsManager.loadFromFile(SETTINGS_PATH);
+
+  // Check if folder CLAUDE.md generation is enabled (default: false)
+  if (settings.CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED !== 'true') {
+    logger.debug('FOLDER_INDEX', 'Folder CLAUDE.md generation disabled', { setting: settings.CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED });
+    return;
+  }
+
   const limit = parseInt(settings.CLAUDE_MEM_CONTEXT_OBSERVATIONS, 10) || 50;
 
   // Extract unique folder paths from file paths
@@ -320,6 +327,13 @@ export async function updateFolderClaudeMdFiles(
       }
 
       const formatted = formatTimelineForClaudeMd(result.content[0].text);
+
+      // Skip writing if no observations (null return means no activity)
+      if (formatted === null) {
+        logger.debug('FOLDER_INDEX', 'No observations for folder, skipping CLAUDE.md', { folderPath });
+        continue;
+      }
+
       writeClaudeMdToFolder(folderPath, formatted);
 
       logger.debug('FOLDER_INDEX', 'Updated CLAUDE.md', { folderPath });

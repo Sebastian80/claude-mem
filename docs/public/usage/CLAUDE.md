@@ -7,5 +7,8 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #216 | 4:49 AM | 🔵 | Comprehensive Understanding of `CLAUDE.md` File Generation and Purpose | ~536 |
+| #215 | " | 🔵 | Public Documentation Confirms Auto-Generated Nature and Git Integration of `CLAUDE.md` Files | ~483 |
+| #214 | " | 🔵 | Public Documentation on Folder Context and `CLAUDE.md` Files Detailed | ~387 |
 | #157 | 4:05 AM | 🔵 | Extensive Documentation Structure Discovered | ~379 |
 </claude-mem-context>

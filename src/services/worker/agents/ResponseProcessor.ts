@@ -16,6 +16,7 @@ import { parseObservations, parseSummary, type ParsedObservation, type ParsedSum
 import { updateCursorContextForProject } from '../../integrations/CursorHooksInstaller.js';
 import { updateFolderClaudeMdFiles } from '../../../utils/claude-md-utils.js';
 import { getWorkerPort } from '../../../shared/worker-utils.js';
+import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
 import type { ActiveSession } from '../../worker-types.js';
 import type { DatabaseManager } from '../DatabaseManager.js';
 import type { SessionManager } from '../SessionManager.js';

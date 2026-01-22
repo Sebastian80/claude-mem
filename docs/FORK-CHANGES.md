@@ -3,7 +3,7 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.5-jv.7`
+**Current Fork Version**: `9.0.5-jv.8`
 **Upstream Base**: `v9.0.5` (commit `3d40b45f`)
 **Last Merge**: 2026-01-14
 **Recent Updates**:
@@ -12,6 +12,7 @@ Categories are ordered by severity (critical fixes first).
 - `9.0.5-jv.4`: Fixed smart-install.js to use worker-cli.js instead of worker-service.cjs
 - `9.0.5-jv.6`: Fixed smart-install.js to update existing aliases on plugin upgrade
 - `9.0.5-jv.7`: Fixed useSettings.ts missing base URL fields (CLAUDE_MEM_GEMINI_BASE_URL, CLAUDE_MEM_OPENROUTER_BASE_URL)
+- `9.0.5-jv.8`: Fixed folder CLAUDE.md generation - disabled by default, no empty files created
 
 ---
 
@@ -26,44 +27,47 @@ Categories are ordered by severity (critical fixes first).
 | 3 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
 | 4 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
 | 5 | H: Custom API Endpoints | Feature - configurable Gemini/OpenRouter endpoints | 9 | Active |
-| 6 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
-| 7 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
-| 8 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
+| 6 | I: Folder CLAUDE.md Optimization | Fix - disable by default, no empty files | 3 | Active |
+| 7 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
+| 8 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
+| 9 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
 
 ### Files by Category
 
-| File | C | A | E | D | H | B | F | G |
-|------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `src/services/worker/SDKAgent.ts` | + | | | | | + | + | |
-| `src/services/worker/SessionManager.ts` | + | | | | | + | | |
-| `src/services/worker-service.ts` | + | | | | | | | |
-| `src/shared/worker-utils.ts` | | + | | | | | | |
-| `src/services/infrastructure/HealthMonitor.ts` | | + | | | | | | |
-| `plugin/scripts/worker-cli.js` | | + | | | | | | |
-| `plugin/scripts/smart-install.js` | | + | | | | | | |
-| `src/services/worker/BranchManager.ts` | | + | | | | | | |
-| `src/services/integrations/CursorHooksInstaller.ts` | | + | | | | | | |
-| `src/services/context/ContextBuilder.ts` | | + | | | | | | |
-| `src/services/sync/ChromaSync.ts` | | + | | | | | | |
-| `src/services/worker/SearchManager.ts` | | | + | | | | | |
-| `src/services/sqlite/SessionSearch.ts` | | | + | | | | | |
-| `src/servers/mcp-server.ts` | | | | + | | | | |
-| `src/shared/SettingsDefaultsManager.ts` | | | | | + | + | + | |
-| `src/services/worker/GeminiAgent.ts` | | | | | + | | | |
-| `src/services/worker/OpenRouterAgent.ts` | | | | | + | | | |
-| `src/services/worker/http/routes/SettingsRoutes.ts` | | | | | + | | | |
-| `src/services/worker/http/middleware.ts` | | | | | + | | | |
-| `src/ui/viewer/types.ts` | | | | | + | | | |
-| `src/ui/viewer/constants/settings.ts` | | | | | + | | | |
-| `src/ui/viewer/hooks/useSettings.ts` | | | | | + | | | |
-| `src/ui/viewer/components/ContextSettingsModal.tsx` | | | | | + | | | |
-| `src/sdk/prompts.ts` | | | | | | + | | |
-| `src/services/queue/SessionQueueProcessor.ts` | | | | | | + | | |
-| `src/cli/handlers/session-init.ts` | | | | | | | + | |
-| `package.json` | | | | | | | | + |
-| `plugin/package.json` | | | | | | | | + |
-| `plugin/.claude-plugin/plugin.json` | | | | | | | | + |
-| `.claude-plugin/marketplace.json` | | | | | | | | + |
+| File | C | A | E | D | H | I | B | F | G |
+|------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `src/services/worker/SDKAgent.ts` | + | | | | | | + | + | |
+| `src/services/worker/SessionManager.ts` | + | | | | | | + | | |
+| `src/services/worker-service.ts` | + | | | | | | | | |
+| `src/shared/worker-utils.ts` | | + | | | | | | | |
+| `src/services/infrastructure/HealthMonitor.ts` | | + | | | | | | | |
+| `plugin/scripts/worker-cli.js` | | + | | | | | | | |
+| `plugin/scripts/smart-install.js` | | + | | | | | | | |
+| `src/services/worker/BranchManager.ts` | | + | | | | | | | |
+| `src/services/integrations/CursorHooksInstaller.ts` | | + | | | | | | | |
+| `src/services/context/ContextBuilder.ts` | | + | | | | | | | |
+| `src/services/sync/ChromaSync.ts` | | + | | | | | | | |
+| `src/services/worker/SearchManager.ts` | | | + | | | | | | |
+| `src/services/sqlite/SessionSearch.ts` | | | + | | | | | | |
+| `src/servers/mcp-server.ts` | | | | + | | | | | |
+| `src/shared/SettingsDefaultsManager.ts` | | | | | + | + | + | + | |
+| `src/services/worker/GeminiAgent.ts` | | | | | + | | | | |
+| `src/services/worker/OpenRouterAgent.ts` | | | | | + | | | | |
+| `src/services/worker/http/routes/SettingsRoutes.ts` | | | | | + | | | | |
+| `src/services/worker/http/middleware.ts` | | | | | + | | | | |
+| `src/ui/viewer/types.ts` | | | | | + | | | | |
+| `src/ui/viewer/constants/settings.ts` | | | | | + | | | | |
+| `src/ui/viewer/hooks/useSettings.ts` | | | | | + | | | | |
+| `src/ui/viewer/components/ContextSettingsModal.tsx` | | | | | + | | | | |
+| `src/utils/claude-md-utils.ts` | | | | | | + | | | |
+| `src/services/worker/agents/ResponseProcessor.ts` | | | | | | + | | | |
+| `src/sdk/prompts.ts` | | | | | | | + | | |
+| `src/services/queue/SessionQueueProcessor.ts` | | | | | | | + | | |
+| `src/cli/handlers/session-init.ts` | | | | | | | | + | |
+| `package.json` | | | | | | | | | + |
+| `plugin/package.json` | | | | | | | | | + |
+| `plugin/.claude-plugin/plugin.json` | | | | | | | | | + |
+| `.claude-plugin/marketplace.json` | | | | | | | | | + |
 
 ---
 
@@ -466,7 +470,51 @@ grep -n 'CLAUDE_MEM_GEMINI_BASE_URL\|CLAUDE_MEM_OPENROUTER_BASE_URL' src/ui/view
 
 ---
 
-### Category G: Fork Configuration (Priority 7)
+### Category I: Folder CLAUDE.md Optimization (Priority 6)
+
+**Problem**: Upstream generates CLAUDE.md files in every folder, even those with no activity. This causes:
+- Git pollution (many auto-generated files tracked)
+- Empty placeholder files ("*No recent activity*") created everywhere
+- Performance overhead on every observation save
+
+**Solution**:
+1. Disable folder CLAUDE.md generation by default
+2. When enabled, only create files for folders with actual observations (no empty files)
+
+**Files**:
+| File | Change |
+|------|--------|
+| `src/shared/SettingsDefaultsManager.ts` | Add `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` setting (default: false) |
+| `src/utils/claude-md-utils.ts` | Check setting before generating; return null for empty content |
+| `src/services/worker/agents/ResponseProcessor.ts` | Import SettingsDefaultsManager |
+
+**Configuration** (`~/.claude-mem/settings.json`):
+```json
+{
+  "CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED": "true"
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` | `"false"` | Enable folder-level CLAUDE.md generation |
+
+**Behavior**:
+- **Disabled (default)**: No folder CLAUDE.md files are created or updated
+- **Enabled**: Only creates CLAUDE.md for folders with actual observations (no empty files)
+
+**Verification**:
+```bash
+# Check setting is respected
+grep -n 'CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED' src/utils/claude-md-utils.ts
+
+# Confirm no empty files are created (when enabled)
+find . -name "CLAUDE.md" -exec grep -l "No recent activity" {} \;  # Should return nothing new
+```
+
+---
+
+### Category G: Fork Configuration (Priority 9)
 
 **Purpose**: Maintain fork identity and marketplace configuration.
 

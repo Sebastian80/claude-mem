@@ -58,6 +58,8 @@ export interface SettingsDefaults {
   CLAUDE_MEM_BATCH_MAX_SIZE: string;         // max observations before forced flush (default: 20)
   // Prompt Filtering
   CLAUDE_MEM_FILTER_COMPACTION_PROMPTS: string;  // 'true' | 'false' - filter compaction/warmup prompts from SDK
+  // Folder CLAUDE.md Generation
+  CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED: string;  // 'true' | 'false' - enable folder-level CLAUDE.md generation
 }
 
 export class SettingsDefaultsManager {
@@ -110,6 +112,8 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_BATCH_MAX_SIZE: '20',            // Max observations before forced flush
     // Prompt Filtering
     CLAUDE_MEM_FILTER_COMPACTION_PROMPTS: 'true',  // On by default - filter compaction/warmup prompts
+    // Folder CLAUDE.md Generation
+    CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED: 'false',   // Off by default - only create CLAUDE.md for folders with activity
   };
 
   /**
