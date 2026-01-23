@@ -47,6 +47,8 @@ export interface SdkSessionRecord {
   id: number;
   content_session_id: string;
   memory_session_id: string | null;
+  claude_resume_session_id: string | null;  // Claude SDK session_id for resume (changes on rollover)
+  last_input_tokens: number | null;          // Persisted for worker restart survival
   project: string;
   user_prompt: string | null;
   started_at: string;

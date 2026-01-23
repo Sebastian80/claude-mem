@@ -47,6 +47,7 @@ export class SessionStore {
     this.renameSessionIdColumns();
     this.repairSessionIdColumnRename();
     this.addFailedAtEpochColumn();
+    this.addClaudeRolloverColumns();
   }
 
   /**
@@ -646,6 +647,37 @@ export class SessionStore {
   }
 
   /**
+   * Add claude_resume_session_id and last_input_tokens columns to sdk_sessions (migration 21)
+   * Enables Claude session rollover without breaking FK relationships:
+   * - memory_session_id: Stable UUID for FK (generated once, never changes)
+   * - claude_resume_session_id: Claude SDK session_id (changes on rollover)
+   * - last_input_tokens: Persisted for worker restart survival
+   */
+  private addClaudeRolloverColumns(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(21) as SchemaVersion | undefined;
+    if (applied) return;
+
+    const tableInfo = this.db.query('PRAGMA table_info(sdk_sessions)').all() as TableColumnInfo[];
+
+    // Add claude_resume_session_id if not exists
+    const hasClaudeResumeSessionId = tableInfo.some(col => col.name === 'claude_resume_session_id');
+    if (!hasClaudeResumeSessionId) {
+      this.db.run('ALTER TABLE sdk_sessions ADD COLUMN claude_resume_session_id TEXT');
+      logger.debug('DB', 'Added claude_resume_session_id column to sdk_sessions table');
+    }
+
+    // Add last_input_tokens if not exists
+    const hasLastInputTokens = tableInfo.some(col => col.name === 'last_input_tokens');
+    if (!hasLastInputTokens) {
+      this.db.run('ALTER TABLE sdk_sessions ADD COLUMN last_input_tokens INTEGER');
+      logger.debug('DB', 'Added last_input_tokens column to sdk_sessions table');
+    }
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(21, new Date().toISOString());
+    logger.info('DB', 'Migration 21 applied: Claude rollover columns added');
+  }
+
+  /**
    * Update the memory session ID for a session
    * Called by SDKAgent when it captures the session ID from the first SDK message
    */
@@ -655,6 +687,48 @@ export class SessionStore {
       SET memory_session_id = ?
       WHERE id = ?
     `).run(memorySessionId, sessionDbId);
+  }
+
+  /**
+   * Update the Claude resume session ID for a session
+   * Called by SDKAgent when it captures the session ID from SDK responses
+   * This ID is used for --resume flag and may change on rollover
+   */
+  updateClaudeResumeSessionId(sessionDbId: number, claudeResumeSessionId: string | null): void {
+    this.db.prepare(`
+      UPDATE sdk_sessions
+      SET claude_resume_session_id = ?
+      WHERE id = ?
+    `).run(claudeResumeSessionId, sessionDbId);
+  }
+
+  /**
+   * Update the last input tokens count for a session
+   * Called by SDKAgent after each API response to track context size
+   * Persisted for worker restart survival
+   */
+  updateLastInputTokens(sessionDbId: number, lastInputTokens: number): void {
+    this.db.prepare(`
+      UPDATE sdk_sessions
+      SET last_input_tokens = ?
+      WHERE id = ?
+    `).run(lastInputTokens, sessionDbId);
+  }
+
+  /**
+   * Get Claude resume session ID and last input tokens for a session
+   * Used when initializing session to restore state after worker restart
+   */
+  getClaudeRolloverState(sessionDbId: number): {
+    claude_resume_session_id: string | null;
+    last_input_tokens: number | null;
+  } | null {
+    const stmt = this.db.prepare(`
+      SELECT claude_resume_session_id, last_input_tokens
+      FROM sdk_sessions
+      WHERE id = ?
+    `);
+    return stmt.get(sessionDbId) as { claude_resume_session_id: string | null; last_input_tokens: number | null } | null;
   }
 
   /**

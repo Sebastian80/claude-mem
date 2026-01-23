@@ -78,46 +78,60 @@ export class SDKAgent {
     // Create message generator (event-driven)
     const messageGenerator = this.createMessageGenerator(session, cwdTracker);
 
-    // CRITICAL: Only resume if:
-    // 1. memorySessionId exists (was captured from a previous SDK response)
+    // CRITICAL: Generate stable UUID for memorySessionId if not already set
+    // This decouples the FK identity from the Claude SDK session_id
+    // memorySessionId: Stable UUID for FK (generated once, never changes)
+    // claudeResumeSessionId: Claude SDK session_id (changes on rollover)
+    if (!session.memorySessionId) {
+      const generatedId = crypto.randomUUID();
+      session.memorySessionId = generatedId;
+      this.dbManager.getSessionStore().updateMemorySessionId(session.sessionDbId, generatedId);
+      logger.info('SDK', `Generated stable memorySessionId for Claude session | sessionDbId=${session.sessionDbId} | memorySessionId=${generatedId}`, {
+        sessionId: session.sessionDbId
+      });
+    }
+
+    // Resume logic uses claudeResumeSessionId (the actual SDK session_id)
+    // Only resume if:
+    // 1. claudeResumeSessionId exists (was captured from a previous SDK response)
     // 2. lastPromptNumber > 1 (this is a continuation within the same SDK session)
-    // On worker restart or crash recovery, memorySessionId may exist from a previous
+    // On worker restart or crash recovery, claudeResumeSessionId may exist from a previous
     // SDK session but we must NOT resume because the SDK context was lost.
-    // NEVER use contentSessionId for resume - that would inject messages into the user's transcript!
-    const hasRealMemorySessionId = !!session.memorySessionId;
+    const hasClaudeResumeId = !!session.claudeResumeSessionId;
 
     logger.info('SDK', 'Starting SDK query', {
       sessionDbId: session.sessionDbId,
       contentSessionId: session.contentSessionId,
       memorySessionId: session.memorySessionId,
-      hasRealMemorySessionId,
-      resume_parameter: hasRealMemorySessionId ? session.memorySessionId : '(none - fresh start)',
+      claudeResumeSessionId: session.claudeResumeSessionId,
+      hasClaudeResumeId,
+      resume_parameter: hasClaudeResumeId ? session.claudeResumeSessionId : '(none - fresh start)',
       lastPromptNumber: session.lastPromptNumber
     });
 
     // Debug-level alignment logs for detailed tracing
     if (session.lastPromptNumber > 1) {
-      const willResume = hasRealMemorySessionId;
-      logger.debug('SDK', `[ALIGNMENT] Resume Decision | contentSessionId=${session.contentSessionId} | memorySessionId=${session.memorySessionId} | prompt#=${session.lastPromptNumber} | hasRealMemorySessionId=${hasRealMemorySessionId} | willResume=${willResume} | resumeWith=${willResume ? session.memorySessionId : 'NONE'}`);
+      const willResume = hasClaudeResumeId;
+      logger.debug('SDK', `[ALIGNMENT] Resume Decision | contentSessionId=${session.contentSessionId} | memorySessionId=${session.memorySessionId} | claudeResumeSessionId=${session.claudeResumeSessionId} | prompt#=${session.lastPromptNumber} | hasClaudeResumeId=${hasClaudeResumeId} | willResume=${willResume} | resumeWith=${willResume ? session.claudeResumeSessionId : 'NONE'}`);
     } else {
-      // INIT prompt - never resume even if memorySessionId exists (stale from previous session)
-      const hasStaleMemoryId = hasRealMemorySessionId;
-      logger.debug('SDK', `[ALIGNMENT] First Prompt (INIT) | contentSessionId=${session.contentSessionId} | prompt#=${session.lastPromptNumber} | hasStaleMemoryId=${hasStaleMemoryId} | action=START_FRESH | Will capture new memorySessionId from SDK response`);
-      if (hasStaleMemoryId) {
-        logger.warn('SDK', `Skipping resume for INIT prompt despite existing memorySessionId=${session.memorySessionId} - SDK context was lost (worker restart or crash recovery)`);
+      // INIT prompt - never resume even if claudeResumeSessionId exists (stale from previous session)
+      const hasStaleResumeId = hasClaudeResumeId;
+      logger.debug('SDK', `[ALIGNMENT] First Prompt (INIT) | contentSessionId=${session.contentSessionId} | prompt#=${session.lastPromptNumber} | hasStaleResumeId=${hasStaleResumeId} | action=START_FRESH | Will capture new claudeResumeSessionId from SDK response`);
+      if (hasStaleResumeId) {
+        logger.warn('SDK', `Skipping resume for INIT prompt despite existing claudeResumeSessionId=${session.claudeResumeSessionId} - SDK context was lost (worker restart or crash recovery)`);
       }
     }
 
     // Run Agent SDK query loop
-    // Only resume if we have a captured memory session ID
+    // Only resume if we have a captured Claude resume session ID
     const queryResult = query({
       prompt: messageGenerator,
       options: {
         model: modelId,
-        // Only resume if BOTH: (1) we have a memorySessionId AND (2) this isn't the first prompt
-        // On worker restart, memorySessionId may exist from a previous SDK session but we
+        // Only resume if BOTH: (1) we have a claudeResumeSessionId AND (2) this isn't the first prompt
+        // On worker restart, claudeResumeSessionId may exist from a previous SDK session but we
         // need to start fresh since the SDK context was lost
-        ...(hasRealMemorySessionId && session.lastPromptNumber > 1 && { resume: session.memorySessionId }),
+        ...(hasClaudeResumeId && session.lastPromptNumber > 1 && { resume: session.claudeResumeSessionId }),
         disallowedTools,
         abortController: session.abortController,
         pathToClaudeCodeExecutable: claudePath
@@ -126,29 +140,23 @@ export class SDKAgent {
 
     // Process SDK messages
     for await (const message of queryResult) {
-      // Capture memory session ID from first SDK message (any type has session_id)
-      // This enables resume for subsequent generator starts within the same user session
-      if (!session.memorySessionId && message.session_id) {
-        session.memorySessionId = message.session_id;
+      // Capture Claude resume session ID from SDK messages
+      // This is the SDK's session_id used for --resume flag
+      // Update on every message in case SDK returns a new session_id
+      if (message.session_id && message.session_id !== session.claudeResumeSessionId) {
+        const previousResumeId = session.claudeResumeSessionId;
+        session.claudeResumeSessionId = message.session_id;
         // Persist to database for cross-restart recovery
-        this.dbManager.getSessionStore().updateMemorySessionId(
+        this.dbManager.getSessionStore().updateClaudeResumeSessionId(
           session.sessionDbId,
           message.session_id
         );
-        // Verify the update by reading back from DB
-        const verification = this.dbManager.getSessionStore().getSessionById(session.sessionDbId);
-        const dbVerified = verification?.memory_session_id === message.session_id;
-        logger.info('SESSION', `MEMORY_ID_CAPTURED | sessionDbId=${session.sessionDbId} | memorySessionId=${message.session_id} | dbVerified=${dbVerified}`, {
+        logger.info('SESSION', `CLAUDE_RESUME_ID_CAPTURED | sessionDbId=${session.sessionDbId} | claudeResumeSessionId=${message.session_id} | previousResumeId=${previousResumeId || '(none)'}`, {
           sessionId: session.sessionDbId,
-          memorySessionId: message.session_id
+          claudeResumeSessionId: message.session_id
         });
-        if (!dbVerified) {
-          logger.error('SESSION', `MEMORY_ID_MISMATCH | sessionDbId=${session.sessionDbId} | expected=${message.session_id} | got=${verification?.memory_session_id}`, {
-            sessionId: session.sessionDbId
-          });
-        }
         // Debug-level alignment log for detailed tracing
-        logger.debug('SDK', `[ALIGNMENT] Captured | contentSessionId=${session.contentSessionId} → memorySessionId=${message.session_id} | Future prompts will resume with this ID`);
+        logger.debug('SDK', `[ALIGNMENT] Captured | contentSessionId=${session.contentSessionId} | memorySessionId=${session.memorySessionId} → claudeResumeSessionId=${message.session_id} | Future prompts will resume with this ID`);
       }
 
       // Handle assistant messages
@@ -174,6 +182,23 @@ export class SDKAgent {
             session.cumulativeInputTokens += usage.cache_creation_input_tokens;
           }
 
+          // Track last input tokens for rollover threshold checking
+          // Include cache tokens in the count since they contribute to context size
+          // cache_read_input_tokens: tokens read from cache (still in context)
+          // cache_creation_input_tokens: tokens written to cache (still in context)
+          const totalInputTokens = (usage.input_tokens || 0) +
+            (usage.cache_read_input_tokens || 0) +
+            (usage.cache_creation_input_tokens || 0);
+
+          if (totalInputTokens > 0) {
+            session.lastInputTokens = totalInputTokens;
+            // Persist to database for worker restart survival
+            this.dbManager.getSessionStore().updateLastInputTokens(
+              session.sessionDbId,
+              totalInputTokens
+            );
+          }
+
           logger.debug('SDK', 'Token usage captured', {
             sessionId: session.sessionDbId,
             inputTokens: usage.input_tokens,
@@ -181,8 +206,41 @@ export class SDKAgent {
             cacheCreation: usage.cache_creation_input_tokens || 0,
             cacheRead: usage.cache_read_input_tokens || 0,
             cumulativeInput: session.cumulativeInputTokens,
-            cumulativeOutput: session.cumulativeOutputTokens
+            cumulativeOutput: session.cumulativeOutputTokens,
+            lastInputTokens: session.lastInputTokens
           });
+
+          // MID-SESSION ROLLOVER CHECK: If tokens exceed threshold, schedule restart
+          // This triggers rollover while the generator is running (not just at start)
+          if (session.lastInputTokens !== undefined && !session.pendingRestart) {
+            const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+            const rolloverEnabled = settings.CLAUDE_MEM_CLAUDE_ROLLOVER_ENABLED === 'true';
+            const maxTokens = parseInt(settings.CLAUDE_MEM_CLAUDE_MAX_TOKENS, 10);
+            const effectiveMaxTokens = isNaN(maxTokens) ? 150000 : maxTokens;
+            const threshold = Math.floor(effectiveMaxTokens * 0.9);
+
+            if (rolloverEnabled && session.lastInputTokens > threshold) {
+              logger.info('SDK', `CLAUDE_ROLLOVER_SCHEDULED | tokens=${session.lastInputTokens} > threshold=${threshold}`, {
+                sessionId: session.sessionDbId,
+                lastInputTokens: session.lastInputTokens,
+                threshold,
+                maxTokens: effectiveMaxTokens
+              });
+              // TELEMETRY: Rollover scheduled event
+              logger.info('TELEMETRY', 'ROLLOVER_SCHEDULED', {
+                sessionId: session.sessionDbId,
+                provider: 'claude',
+                tokens: session.lastInputTokens,
+                threshold,
+                maxTokens: effectiveMaxTokens
+              });
+              // Schedule restart via pendingRestart mechanism (will trigger when idle)
+              session.pendingRestart = {
+                reason: `context-rollover:${session.lastInputTokens}>${threshold}`,
+                requestedAt: Date.now()
+              };
+            }
+          }
         }
 
         // Calculate discovery tokens (delta for this response only)
@@ -485,22 +543,22 @@ export class SDKAgent {
   }
 
   /**
-   * Kill orphan subprocesses matching a session's memorySessionId
+   * Kill orphan subprocesses matching a session's claudeResumeSessionId
    * This is needed because AbortController.abort() doesn't reliably kill the subprocess
    * on some Linux environments. Manual cleanup ensures no zombie processes accumulate.
    *
-   * @param memorySessionId The session ID used in --resume flag
+   * @param claudeResumeSessionId The Claude SDK session ID used in --resume flag
    * @returns Number of processes killed
    */
-  killOrphanSubprocesses(memorySessionId: string): number {
-    if (!memorySessionId) {
+  killOrphanSubprocesses(claudeResumeSessionId: string): number {
+    if (!claudeResumeSessionId) {
       return 0;
     }
 
     try {
-      // Find PIDs matching --resume <memorySessionId>
+      // Find PIDs matching --resume <claudeResumeSessionId>
       // Use pgrep for portable process matching
-      const pgrepResult = spawnSync('pgrep', ['-f', `--resume ${memorySessionId}`], {
+      const pgrepResult = spawnSync('pgrep', ['-f', `--resume ${claudeResumeSessionId}`], {
         encoding: 'utf8',
         windowsHide: true
       });
@@ -518,9 +576,9 @@ export class SDKAgent {
           // SIGTERM first (graceful)
           process.kill(parseInt(pid, 10), 'SIGTERM');
           killedCount++;
-          logger.info('SDK', `SUBPROCESS_KILLED | pid=${pid} | memorySessionId=${memorySessionId}`, {
+          logger.info('SDK', `SUBPROCESS_KILLED | pid=${pid} | claudeResumeSessionId=${claudeResumeSessionId}`, {
             pid,
-            memorySessionId,
+            claudeResumeSessionId,
             signal: 'SIGTERM'
           });
         } catch (killError: any) {
@@ -528,7 +586,7 @@ export class SDKAgent {
           if (killError.code !== 'ESRCH') {
             logger.warn('SDK', `Failed to kill subprocess ${pid}`, {
               pid,
-              memorySessionId,
+              claudeResumeSessionId,
               error: killError.message
             });
           }
@@ -536,8 +594,8 @@ export class SDKAgent {
       }
 
       if (killedCount > 0) {
-        logger.info('SDK', `ORPHAN_CLEANUP | killed=${killedCount} | memorySessionId=${memorySessionId}`, {
-          memorySessionId,
+        logger.info('SDK', `ORPHAN_CLEANUP | killed=${killedCount} | claudeResumeSessionId=${claudeResumeSessionId}`, {
+          claudeResumeSessionId,
           killedCount,
           pids: pids.join(',')
         });
@@ -545,7 +603,7 @@ export class SDKAgent {
 
       return killedCount;
     } catch (error) {
-      logger.debug('SDK', 'Error during orphan subprocess cleanup', { memorySessionId }, error as Error);
+      logger.debug('SDK', 'Error during orphan subprocess cleanup', { claudeResumeSessionId }, error as Error);
       return 0;
     }
   }

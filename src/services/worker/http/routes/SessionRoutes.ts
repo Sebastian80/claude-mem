@@ -128,14 +128,56 @@ export class SessionRoutes extends BaseRouteHandler {
     const agent = provider === 'openai' ? this.openAIAgent : (provider === 'gemini' ? this.geminiAgent : this.sdkAgent);
     const agentName = provider === 'openai' ? 'OpenAI' : (provider === 'gemini' ? 'Gemini' : 'Claude SDK');
 
+    // CLAUDE ROLLOVER: Check if input tokens exceed threshold before starting
+    // If threshold exceeded, clear claudeResumeSessionId to start fresh (no resume)
+    let previousResumeIdForCleanup: string | null = null;  // Save for orphan cleanup
+    if (provider === 'claude' && session.lastInputTokens !== undefined) {
+      const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+      const rolloverEnabled = settings.CLAUDE_MEM_CLAUDE_ROLLOVER_ENABLED === 'true';
+      const maxTokens = parseInt(settings.CLAUDE_MEM_CLAUDE_MAX_TOKENS, 10);
+      const effectiveMaxTokens = isNaN(maxTokens) ? 150000 : maxTokens;
+      // Use 90% safety margin to trigger before hitting hard limit
+      const threshold = Math.floor(effectiveMaxTokens * 0.9);
+
+      if (rolloverEnabled && session.lastInputTokens > threshold) {
+        previousResumeIdForCleanup = session.claudeResumeSessionId;
+        logger.info('SESSION', `CLAUDE_ROLLOVER_TRIGGERED | tokens=${session.lastInputTokens} > threshold=${threshold}`, {
+          sessionId: session.sessionDbId,
+          lastInputTokens: session.lastInputTokens,
+          threshold,
+          maxTokens: effectiveMaxTokens,
+          previousResumeId: previousResumeIdForCleanup
+        });
+        // TELEMETRY: Rollover executed event (at generator start)
+        logger.info('TELEMETRY', 'ROLLOVER_EXECUTED', {
+          sessionId: session.sessionDbId,
+          provider: 'claude',
+          tokens: session.lastInputTokens,
+          threshold,
+          maxTokens: effectiveMaxTokens,
+          previousResumeId: previousResumeIdForCleanup
+        });
+
+        // Clear claudeResumeSessionId to start fresh (no resume)
+        session.claudeResumeSessionId = null;
+        this.dbManager.getSessionStore().updateClaudeResumeSessionId(session.sessionDbId, null);
+
+        // Note: memorySessionId stays the same (stable FK identity)
+        // Observations will continue to be stored under the same memorySessionId
+      }
+    }
+
     // CRITICAL: Kill orphan subprocesses BEFORE starting new generator
     // This prevents zombie process accumulation when AbortController.abort() fails to kill
-    if (session.memorySessionId && provider === 'claude') {
-      const killed = this.sdkAgent.killOrphanSubprocesses(session.memorySessionId);
+    // Use claudeResumeSessionId (the actual SDK session_id used for --resume)
+    // On rollover, use the saved previousResumeIdForCleanup since we just cleared claudeResumeSessionId
+    const resumeIdForCleanup = previousResumeIdForCleanup ?? session.claudeResumeSessionId;
+    if (resumeIdForCleanup && provider === 'claude') {
+      const killed = this.sdkAgent.killOrphanSubprocesses(resumeIdForCleanup);
       if (killed > 0) {
         logger.info('SESSION', `Killed ${killed} orphan subprocess(es) before starting new generator`, {
           sessionId: session.sessionDbId,
-          memorySessionId: session.memorySessionId
+          claudeResumeSessionId: resumeIdForCleanup
         });
       }
     }

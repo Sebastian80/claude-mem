@@ -20,7 +20,8 @@ export interface ConversationMessage {
 export interface ActiveSession {
   sessionDbId: number;
   contentSessionId: string;      // User's Claude Code session being observed
-  memorySessionId: string | null; // Memory agent's session ID for resume
+  memorySessionId: string | null; // Stable UUID for FK (generated once, never changes)
+  claudeResumeSessionId: string | null; // Claude SDK session_id for resume (changes on rollover)
   project: string;
   userPrompt: string;
   pendingMessages: PendingMessage[];  // Deprecated: now using persistent store, kept for compatibility

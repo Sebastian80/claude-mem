@@ -135,11 +135,14 @@ export class SessionManager {
     }
 
     // Create active session
-    // Load memorySessionId from database if previously captured (enables resume across restarts)
+    // Load memorySessionId and claudeResumeSessionId from database if previously captured (enables resume across restarts)
+    // Also load lastInputTokens for rollover threshold checking
+    const rolloverState = this.dbManager.getSessionStore().getClaudeRolloverState(sessionDbId);
     session = {
       sessionDbId,
       contentSessionId: dbSession.content_session_id,
       memorySessionId: dbSession.memory_session_id || null,
+      claudeResumeSessionId: rolloverState?.claude_resume_session_id ?? null,
       project: dbSession.project,
       userPrompt,
       pendingMessages: [],
@@ -149,6 +152,7 @@ export class SessionManager {
       startTime: Date.now(),
       cumulativeInputTokens: 0,
       cumulativeOutputTokens: 0,
+      lastInputTokens: rolloverState?.last_input_tokens ?? undefined,
       earliestPendingTimestamp: null,
       conversationHistory: [],  // Initialize empty - will be populated by agents
       currentProvider: null  // Will be set when generator starts
@@ -300,12 +304,13 @@ export class SessionManager {
 
     // CRITICAL: Kill orphan subprocesses that abort() may not have killed
     // This prevents zombie process accumulation on Linux
-    if (session.memorySessionId && this.onKillOrphanSubprocesses) {
-      const killed = this.onKillOrphanSubprocesses(session.memorySessionId);
+    // Use claudeResumeSessionId (the actual SDK session_id used for --resume)
+    if (session.claudeResumeSessionId && this.onKillOrphanSubprocesses) {
+      const killed = this.onKillOrphanSubprocesses(session.claudeResumeSessionId);
       if (killed > 0) {
         logger.info('SESSION', `Killed ${killed} orphan subprocess(es) on session delete`, {
           sessionId: sessionDbId,
-          memorySessionId: session.memorySessionId
+          claudeResumeSessionId: session.claudeResumeSessionId
         });
       }
     }

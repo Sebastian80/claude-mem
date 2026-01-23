@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.6-jv.2`
+**Current Fork Version**: `9.0.6-jv.3`
 **Upstream Base**: `v9.0.6` (commit `c29d91a9`)
 **Last Merge**: 2026-01-23
 **Recent Updates**:
+- `9.0.6-jv.3`: Claude Session Rollover - restart SDK sessions when context grows too large
 - `9.0.6-jv.2`: Context Truncation - prevent runaway context growth for Gemini/OpenAI providers
 - `9.0.6-jv.1`: Merged upstream v9.0.6 (Windows console popup fixes, Chroma disabled on Windows)
 - `9.0.5-jv.11`: Settings Hot-Reload - apply provider/model changes without worker restart
@@ -26,63 +27,66 @@ Categories are ordered by severity (critical fixes first).
 | 2 | A: Dynamic Path Resolution | Crash fix - hardcoded `thedotmack` paths | 2 | Active |
 | 3 | J: Gemini/OpenAI memorySessionId | Bugfix - non-Claude providers crash without UUID | 2 | Active |
 | 4 | M: Context Truncation | Bugfix - prevent runaway context growth for Gemini/OpenAI | 8 | Active |
-| 5 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
-| 6 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
-| 7 | H: Custom API Endpoints | Feature - configurable Gemini/OpenAI endpoints | 9 | Active |
-| 8 | K: Dynamic Model Selection | Feature - URL normalization, model fetching, OpenRouter→OpenAI | 15 | Active |
-| 9 | L: Settings Hot-Reload | Feature - apply settings changes without worker restart | 7 | Active |
-| 10 | I: Folder CLAUDE.md Optimization | Fix - disable by default, no empty files | 3 | Active |
-| 11 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
-| 12 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
-| 13 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
+| 5 | N: Claude Session Rollover | Bugfix - restart SDK sessions when context grows too large | 6 | Active |
+| 6 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
+| 7 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
+| 8 | H: Custom API Endpoints | Feature - configurable Gemini/OpenAI endpoints | 9 | Active |
+| 9 | K: Dynamic Model Selection | Feature - URL normalization, model fetching, OpenRouter→OpenAI | 15 | Active |
+| 10 | L: Settings Hot-Reload | Feature - apply settings changes without worker restart | 7 | Active |
+| 11 | I: Folder CLAUDE.md Optimization | Fix - disable by default, no empty files | 3 | Active |
+| 12 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
+| 13 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
+| 14 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
 
 ### Files by Category
 
-| File | C | A | J | M | E | D | H | K | L | I | B | F | G |
-|------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `src/services/worker/SDKAgent.ts` | + | | | | | | | | | | + | + | |
-| `src/services/worker/SessionManager.ts` | + | | | | | | | | + | | + | | |
-| `src/services/worker-service.ts` | + | | | | | | | + | + | | | | |
-| `src/services/worker-types.ts` | | | | + | | | | + | + | | | | |
-| `src/shared/worker-utils.ts` | | + | | | | | | | | | | | |
-| `src/services/infrastructure/HealthMonitor.ts` | | + | | | | | | | | | | | |
-| `plugin/scripts/worker-cli.js` | | + | | | | | | | | | | | |
-| `plugin/scripts/smart-install.js` | | + | | | | | | | | | | | |
-| `src/services/worker/BranchManager.ts` | | + | | | | | | | | | | | |
-| `src/services/integrations/CursorHooksInstaller.ts` | | + | | | | | | | | | | | |
-| `src/services/context/ContextBuilder.ts` | | + | | | | | | | | | | | |
-| `src/services/sync/ChromaSync.ts` | | + | | | | | | | | | | | |
-| `src/services/worker/GeminiAgent.ts` | | | + | + | | | + | + | | | | | |
-| `src/services/worker/OpenAIAgent.ts` | | | + | + | | | + | + | | | | | |
-| `src/services/worker/SearchManager.ts` | | | | | + | | | | | | | | |
-| `src/services/sqlite/SessionSearch.ts` | | | | | + | | | | | | | | |
-| `src/servers/mcp-server.ts` | | | | | | + | | | | | | | |
-| `src/shared/SettingsDefaultsManager.ts` | | | | + | | | + | + | | + | + | + | |
-| `src/services/worker/http/routes/SettingsRoutes.ts` | | | | | | | + | + | | | | | |
-| `src/services/worker/http/routes/SessionRoutes.ts` | | | | | | | | + | + | | | | |
-| `src/services/worker/http/middleware.ts` | | | | | | | + | | | | | | |
-| `src/ui/viewer/types.ts` | | | | | | | + | + | | | | | |
-| `src/ui/viewer/constants/settings.ts` | | | | | | | + | + | | | | | |
-| `src/ui/viewer/constants/api.ts` | | | | | | | | + | | | | | |
-| `src/ui/viewer/hooks/useSettings.ts` | | | | | | | + | + | | | | | |
-| `src/ui/viewer/hooks/useModelFetch.ts` | | | | | | | | + | | | | | |
-| `src/ui/viewer/components/ContextSettingsModal.tsx` | | | | | | | + | + | | | | | |
-| `src/utils/url-utils.ts` | | | | | | | | + | | | | | |
-| `src/services/worker/agents/types.ts` | | | | + | | | | + | | | | | |
-| `src/services/worker/agents/FallbackErrorHandler.ts` | | | | + | | | | | | | | | |
-| `src/services/worker/agents/index.ts` | | | | + | | | | | | | | | |
-| `src/services/worker/utils/HistoryTruncation.ts` | | | | + | | | | | | | | | |
-| `src/utils/claude-md-utils.ts` | | | | | | | | | | + | | | |
-| `src/services/worker/agents/ResponseProcessor.ts` | | | | | | | | | + | + | | | |
-| `src/sdk/prompts.ts` | | | | | | | | | | | + | | |
-| `src/services/queue/SessionQueueProcessor.ts` | | | | | | | | | + | | + | | |
-| `src/services/worker/settings/SettingsWatcher.ts` | | | | | | | | | + | | | | |
-| `src/cli/handlers/session-init.ts` | | | | | | | | | | | | + | |
-| `package.json` | | | | | | | | | | | | | + |
-| `plugin/package.json` | | | | | | | | | | | | | + |
-| `plugin/.claude-plugin/plugin.json` | | | | | | | | | | | | | + |
-| `.claude-plugin/marketplace.json` | | | | | | | | | | | | | + |
-| `README.md` | | | | | | | | + | | | | | |
+| File | C | A | J | M | N | E | D | H | K | L | I | B | F | G |
+|------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `src/services/worker/SDKAgent.ts` | + | | | | + | | | | | | | + | + | |
+| `src/services/worker/SessionManager.ts` | + | | | | + | | | | | + | | + | | |
+| `src/services/worker-service.ts` | + | | | | | | | | + | + | | | | |
+| `src/services/worker-types.ts` | | | | + | + | | | | + | + | | | | |
+| `src/services/sqlite/SessionStore.ts` | | | | | + | | | | | | | | | |
+| `src/types/database.ts` | | | | | + | | | | | | | | | |
+| `src/shared/worker-utils.ts` | | + | | | | | | | | | | | | |
+| `src/services/infrastructure/HealthMonitor.ts` | | + | | | | | | | | | | | | |
+| `plugin/scripts/worker-cli.js` | | + | | | | | | | | | | | | |
+| `plugin/scripts/smart-install.js` | | + | | | | | | | | | | | | |
+| `src/services/worker/BranchManager.ts` | | + | | | | | | | | | | | | |
+| `src/services/integrations/CursorHooksInstaller.ts` | | + | | | | | | | | | | | | |
+| `src/services/context/ContextBuilder.ts` | | + | | | | | | | | | | | | |
+| `src/services/sync/ChromaSync.ts` | | + | | | | | | | | | | | | |
+| `src/services/worker/GeminiAgent.ts` | | | + | + | | | | + | + | | | | | |
+| `src/services/worker/OpenAIAgent.ts` | | | + | + | | | | + | + | | | | | |
+| `src/services/worker/SearchManager.ts` | | | | | | + | | | | | | | | |
+| `src/services/sqlite/SessionSearch.ts` | | | | | | + | | | | | | | | |
+| `src/servers/mcp-server.ts` | | | | | | | + | | | | | | | |
+| `src/shared/SettingsDefaultsManager.ts` | | | | + | + | | | + | + | | + | + | + | |
+| `src/services/worker/http/routes/SettingsRoutes.ts` | | | | | | | | + | + | | | | | |
+| `src/services/worker/http/routes/SessionRoutes.ts` | | | | | + | | | | + | + | | | | |
+| `src/services/worker/http/middleware.ts` | | | | | | | | + | | | | | | |
+| `src/ui/viewer/types.ts` | | | | | | | | + | + | | | | | |
+| `src/ui/viewer/constants/settings.ts` | | | | | | | | + | + | | | | | |
+| `src/ui/viewer/constants/api.ts` | | | | | | | | | + | | | | | |
+| `src/ui/viewer/hooks/useSettings.ts` | | | | | | | | + | + | | | | | |
+| `src/ui/viewer/hooks/useModelFetch.ts` | | | | | | | | | + | | | | | |
+| `src/ui/viewer/components/ContextSettingsModal.tsx` | | | | | | | | + | + | | | | | |
+| `src/utils/url-utils.ts` | | | | | | | | | + | | | | | |
+| `src/services/worker/agents/types.ts` | | | | + | | | | | + | | | | | |
+| `src/services/worker/agents/FallbackErrorHandler.ts` | | | | + | | | | | | | | | | |
+| `src/services/worker/agents/index.ts` | | | | + | | | | | | | | | | |
+| `src/services/worker/utils/HistoryTruncation.ts` | | | | + | | | | | | | | | | |
+| `src/utils/claude-md-utils.ts` | | | | | | | | | | | + | | | |
+| `src/services/worker/agents/ResponseProcessor.ts` | | | | | | | | | | + | + | | | |
+| `src/sdk/prompts.ts` | | | | | | | | | | | | + | | |
+| `src/services/queue/SessionQueueProcessor.ts` | | | | | | | | | | + | | + | | |
+| `src/services/worker/settings/SettingsWatcher.ts` | | | | | | | | | | + | | | | |
+| `src/cli/handlers/session-init.ts` | | | | | | | | | | | | | + | |
+| `package.json` | | | | | | | | | | | | | | + |
+| `plugin/package.json` | | | | | | | | | | | | | | + |
+| `plugin/.claude-plugin/plugin.json` | | | | | | | | | | | | | | + |
+| `.claude-plugin/marketplace.json` | | | | | | | | | | | | | | + |
+| `README.md` | | | | | | | | | + | | | | | |
 
 ---
 
@@ -606,6 +610,67 @@ grep -n 'truncateHistory\|queryWithRetry' src/services/worker/GeminiAgent.ts src
 ```
 
 **Plan**: `docs/plans/2026-01-23-plan-1-gemini-openai-context-truncation.md`
+
+---
+
+### Category N: Claude Session Rollover (Priority 5)
+
+**Problem**: Claude provider experiences runaway context growth:
+1. `memory_session_id` was used for both DB foreign keys AND Claude SDK resume
+2. Restarting Claude session = new SDK session_id = FK error (orphaned observations)
+3. Context grows until model hits limit → crash
+
+**Solution**: Decouple DB identity from provider session identity:
+1. Generate stable UUID for `memory_session_id` (like Gemini/OpenAI do)
+2. Store Claude SDK session_id separately in `claude_resume_session_id`
+3. When threshold reached → start fresh SDK session, keep same DB identity
+
+**Files**:
+| File | Change |
+|------|--------|
+| `src/services/sqlite/SessionStore.ts` | Migration 21: add `claude_resume_session_id`, `last_input_tokens` columns |
+| `src/types/database.ts` | Add new fields to `SdkSessionRecord` type |
+| `src/services/worker-types.ts` | Add `claudeResumeSessionId` to `ActiveSession` |
+| `src/services/worker/SDKAgent.ts` | Generate stable UUID, track tokens, schedule mid-session rollover |
+| `src/services/worker/SessionManager.ts` | Load rollover state from DB, use `claudeResumeSessionId` for orphan cleanup |
+| `src/services/worker/http/routes/SessionRoutes.ts` | Pre-start rollover check, orphan cleanup with saved resume ID |
+| `src/shared/SettingsDefaultsManager.ts` | Add `CLAUDE_MEM_CLAUDE_MAX_TOKENS`, `CLAUDE_MEM_CLAUDE_ROLLOVER_ENABLED` |
+
+**Configuration** (`~/.claude-mem/settings.json`):
+```json
+{
+  "CLAUDE_MEM_CLAUDE_MAX_TOKENS": "150000",
+  "CLAUDE_MEM_CLAUDE_ROLLOVER_ENABLED": "true"
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `CLAUDE_MEM_CLAUDE_MAX_TOKENS` | `"150000"` | Max tokens before rollover (Claude has larger context) |
+| `CLAUDE_MEM_CLAUDE_ROLLOVER_ENABLED` | `"true"` | Enable/disable session rollover |
+
+**Key Features**:
+- **Session identity decoupling**: `memorySessionId` (stable UUID for FK) vs `claudeResumeSessionId` (SDK session_id for resume)
+- **Token tracking**: Includes `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`
+- **Persisted state**: `last_input_tokens` survives worker restarts
+- **Safety margin**: Triggers at 90% of max tokens
+- **Mid-session rollover**: Schedules restart via `pendingRestart` mechanism when threshold exceeded
+- **Orphan cleanup preserved**: Saves `previousResumeIdForCleanup` before clearing
+- **Telemetry**: `ROLLOVER_SCHEDULED`, `ROLLOVER_EXECUTED` events
+
+**Verification**:
+```bash
+# Check migration exists
+grep -n 'addClaudeRolloverColumns' src/services/sqlite/SessionStore.ts
+
+# Check settings are defined
+grep -n 'CLAUDE_MEM_CLAUDE_MAX_TOKENS\|CLAUDE_MEM_CLAUDE_ROLLOVER_ENABLED' src/shared/SettingsDefaultsManager.ts
+
+# Check rollover logic
+grep -n 'CLAUDE_ROLLOVER_TRIGGERED\|CLAUDE_ROLLOVER_SCHEDULED' src/services/worker/SDKAgent.ts src/services/worker/http/routes/SessionRoutes.ts
+```
+
+**Plan**: `docs/plans/2026-01-23-plan-2-claude-session-rollover.md`
 
 ---
 

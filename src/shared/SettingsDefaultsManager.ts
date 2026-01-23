@@ -26,6 +26,9 @@ export interface SettingsDefaults {
   CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES: string;   // Max messages in context window
   CLAUDE_MEM_GEMINI_MAX_TOKENS: string;             // Max estimated tokens for truncation
   CLAUDE_MEM_GEMINI_TRUNCATION_ENABLED: string;     // 'true' | 'false' - enable context truncation
+  // Claude Provider Rollover Configuration
+  CLAUDE_MEM_CLAUDE_MAX_TOKENS: string;             // Max tokens before rollover (default: 150000)
+  CLAUDE_MEM_CLAUDE_ROLLOVER_ENABLED: string;       // 'true' | 'false' - enable session rollover
   // OpenAI-Compatible Provider (formerly OpenRouter)
   CLAUDE_MEM_OPENAI_API_KEY: string;
   CLAUDE_MEM_OPENAI_MODEL: string;
@@ -93,6 +96,9 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES: '20',     // Max messages in context window
     CLAUDE_MEM_GEMINI_MAX_TOKENS: '100000',           // Max estimated tokens (~100k safety limit)
     CLAUDE_MEM_GEMINI_TRUNCATION_ENABLED: 'true',     // Truncation ON by default
+    // Claude Provider Rollover Configuration
+    CLAUDE_MEM_CLAUDE_MAX_TOKENS: '150000',           // Claude has larger context, rollover at 150k
+    CLAUDE_MEM_CLAUDE_ROLLOVER_ENABLED: 'true',       // Rollover ON by default
     // OpenAI-Compatible Provider (formerly OpenRouter)
     CLAUDE_MEM_OPENAI_API_KEY: '',  // Empty by default, can be set via UI or env
     CLAUDE_MEM_OPENAI_MODEL: 'xiaomi/mimo-v2-flash:free',  // Default model (free tier on OpenRouter)
