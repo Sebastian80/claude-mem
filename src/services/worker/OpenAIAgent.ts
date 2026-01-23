@@ -23,9 +23,16 @@ import {
   processAgentResponse,
   shouldFallbackToClaude,
   isAbortError,
+  isContextOverflowError,
   type WorkerRef,
   type FallbackAgent
 } from './agents/index.js';
+import {
+  truncateHistory,
+  truncateAggressively,
+  shouldTruncate,
+  type TruncationConfig
+} from './utils/HistoryTruncation.js';
 
 // Default API endpoint (OpenRouter, can be overridden via settings)
 const DEFAULT_OPENAI_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -85,7 +92,7 @@ export class OpenAIAgent {
   async startSession(session: ActiveSession, worker?: WorkerRef): Promise<void> {
     try {
       // Get OpenAI-compatible configuration
-      const { apiKey, model, siteUrl, appName } = this.getOpenAIConfig();
+      const { apiKey, model, siteUrl, appName, truncationConfig } = this.getOpenAIConfig();
 
       if (!apiKey) {
         throw new Error('OpenAI-compatible API key not configured. Set CLAUDE_MEM_OPENAI_API_KEY in settings or OPENROUTER_API_KEY environment variable.');
@@ -110,18 +117,27 @@ export class OpenAIAgent {
         ? buildInitPrompt(session.project, session.contentSessionId, session.userPrompt, mode)
         : buildContinuationPrompt(session.userPrompt, session.lastPromptNumber, session.contentSessionId, mode);
 
+      // Truncate before init call if history is already large (e.g., provider switch)
+      if (shouldTruncate(session.lastInputTokens, truncationConfig, session.conversationHistory)) {
+        truncateHistory(session.conversationHistory, truncationConfig, session.lastInputTokens);
+      }
+
       // Add to conversation history and query OpenAI-compatible API with full context
       session.conversationHistory.push({ role: 'user', content: initPrompt });
       const initResponse = await this.queryOpenAIMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
 
       if (initResponse.content) {
-        // Add response to conversation history
-        session.conversationHistory.push({ role: 'assistant', content: initResponse.content });
+        // Note: Response is added to conversation history by ResponseProcessor (centralized)
 
         // Track token usage
         const tokensUsed = initResponse.tokensUsed || 0;
         session.cumulativeInputTokens += Math.floor(tokensUsed * 0.7);  // Rough estimate
         session.cumulativeOutputTokens += Math.floor(tokensUsed * 0.3);
+
+        // Track actual input tokens for truncation trigger
+        if (initResponse.inputTokens !== undefined) {
+          session.lastInputTokens = initResponse.inputTokens;
+        }
 
         // Process response using shared ResponseProcessor (no original timestamp for init - not from queue)
         await processAgentResponse(
@@ -170,18 +186,34 @@ export class OpenAIAgent {
             cwd: message.cwd
           });
 
-          // Add to conversation history and query OpenAI-compatible API with full context
+          // Check if truncation is needed before adding new message
+          if (shouldTruncate(session.lastInputTokens, truncationConfig, session.conversationHistory)) {
+            truncateHistory(session.conversationHistory, truncationConfig, session.lastInputTokens);
+          }
+
+          // Add to conversation history and query OpenAI with retry-on-context-error
           session.conversationHistory.push({ role: 'user', content: obsPrompt });
-          const obsResponse = await this.queryOpenAIMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
+          const obsResponse = await this.queryWithRetry(session, apiKey, model, siteUrl, appName);
 
           let tokensUsed = 0;
           if (obsResponse.content) {
-            // Add response to conversation history
-            session.conversationHistory.push({ role: 'assistant', content: obsResponse.content });
+            // Note: Response is added to conversation history by ResponseProcessor (centralized)
 
             tokensUsed = obsResponse.tokensUsed || 0;
             session.cumulativeInputTokens += Math.floor(tokensUsed * 0.7);
             session.cumulativeOutputTokens += Math.floor(tokensUsed * 0.3);
+
+            // Track actual input tokens for truncation trigger
+            if (obsResponse.inputTokens !== undefined) {
+              session.lastInputTokens = obsResponse.inputTokens;
+            }
+          } else if (obsResponse.skipped) {
+            // Observation was skipped due to unrecoverable context overflow
+            // Still call processAgentResponse to complete the cycle (decrement in-flight counter)
+            logger.warn('SDK', 'Observation skipped due to context overflow', {
+              sessionId: session.sessionDbId,
+              toolName: message.tool_name
+            });
           }
 
           // Process response using shared ResponseProcessor
@@ -207,18 +239,32 @@ export class OpenAIAgent {
             last_assistant_message: message.last_assistant_message || ''
           }, mode);
 
-          // Add to conversation history and query OpenAI-compatible API with full context
+          // Check if truncation is needed before adding new message
+          if (shouldTruncate(session.lastInputTokens, truncationConfig, session.conversationHistory)) {
+            truncateHistory(session.conversationHistory, truncationConfig, session.lastInputTokens);
+          }
+
+          // Add to conversation history and query OpenAI with retry-on-context-error
           session.conversationHistory.push({ role: 'user', content: summaryPrompt });
-          const summaryResponse = await this.queryOpenAIMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
+          const summaryResponse = await this.queryWithRetry(session, apiKey, model, siteUrl, appName);
 
           let tokensUsed = 0;
           if (summaryResponse.content) {
-            // Add response to conversation history
-            session.conversationHistory.push({ role: 'assistant', content: summaryResponse.content });
+            // Note: Response is added to conversation history by ResponseProcessor (centralized)
 
             tokensUsed = summaryResponse.tokensUsed || 0;
             session.cumulativeInputTokens += Math.floor(tokensUsed * 0.7);
             session.cumulativeOutputTokens += Math.floor(tokensUsed * 0.3);
+
+            // Track actual input tokens for truncation trigger
+            if (summaryResponse.inputTokens !== undefined) {
+              session.lastInputTokens = summaryResponse.inputTokens;
+            }
+          } else if (summaryResponse.skipped) {
+            // Summary was skipped due to unrecoverable context overflow
+            logger.warn('SDK', 'Summary skipped due to context overflow', {
+              sessionId: session.sessionDbId
+            });
           }
 
           // Process response using shared ResponseProcessor
@@ -270,58 +316,6 @@ export class OpenAIAgent {
   }
 
   /**
-   * Estimate token count from text (conservative estimate)
-   */
-  private estimateTokens(text: string): number {
-    return Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE);
-  }
-
-  /**
-   * Truncate conversation history to prevent runaway context costs
-   * Keeps most recent messages within token budget
-   */
-  private truncateHistory(history: ConversationMessage[]): ConversationMessage[] {
-    const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-
-    const MAX_CONTEXT_MESSAGES = parseInt(settings.CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES) || DEFAULT_MAX_CONTEXT_MESSAGES;
-    const MAX_ESTIMATED_TOKENS = parseInt(settings.CLAUDE_MEM_OPENAI_MAX_TOKENS) || DEFAULT_MAX_ESTIMATED_TOKENS;
-
-    if (history.length <= MAX_CONTEXT_MESSAGES) {
-      // Check token count even if message count is ok
-      const totalTokens = history.reduce((sum, m) => sum + this.estimateTokens(m.content), 0);
-      if (totalTokens <= MAX_ESTIMATED_TOKENS) {
-        return history;
-      }
-    }
-
-    // Sliding window: keep most recent messages within limits
-    const truncated: ConversationMessage[] = [];
-    let tokenCount = 0;
-
-    // Process messages in reverse (most recent first)
-    for (let i = history.length - 1; i >= 0; i--) {
-      const msg = history[i];
-      const msgTokens = this.estimateTokens(msg.content);
-
-      if (truncated.length >= MAX_CONTEXT_MESSAGES || tokenCount + msgTokens > MAX_ESTIMATED_TOKENS) {
-        logger.warn('SDK', 'Context window truncated to prevent runaway costs', {
-          originalMessages: history.length,
-          keptMessages: truncated.length,
-          droppedMessages: i + 1,
-          estimatedTokens: tokenCount,
-          tokenLimit: MAX_ESTIMATED_TOKENS
-        });
-        break;
-      }
-
-      truncated.unshift(msg);  // Add to beginning
-      tokenCount += msgTokens;
-    }
-
-    return truncated;
-  }
-
-  /**
    * Convert shared ConversationMessage array to OpenAI-compatible message format
    */
   private conversationToOpenAIMessages(history: ConversationMessage[]): OpenAIMessage[] {
@@ -329,6 +323,81 @@ export class OpenAIAgent {
       role: msg.role === 'assistant' ? 'assistant' : 'user',
       content: msg.content
     }));
+  }
+
+  /**
+   * Query OpenAI with retry-on-context-error.
+   * If the first attempt fails with a context overflow error, aggressively truncate and retry once.
+   *
+   * @param session - Active session (history will be mutated on aggressive truncation)
+   * @param apiKey - OpenAI API key
+   * @param model - Model to use
+   * @param siteUrl - Optional site URL for analytics
+   * @param appName - Optional app name for analytics
+   * @returns Response content and token usage, or empty content if both attempts fail
+   */
+  private async queryWithRetry(
+    session: ActiveSession,
+    apiKey: string,
+    model: string,
+    siteUrl?: string,
+    appName?: string
+  ): Promise<{ content: string; tokensUsed?: number; inputTokens?: number; skipped?: boolean; skipReason?: string }> {
+    try {
+      return await this.queryOpenAIMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
+    } catch (error) {
+      if (isContextOverflowError(error)) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Telemetry: context overflow detected
+        logger.info('TELEMETRY', 'contextOverflowDetected', {
+          sessionId: session.sessionDbId,
+          provider: 'OpenAI',
+          historyLength: session.conversationHistory.length,
+          error: errorMessage
+        });
+
+        logger.warn('TRUNCATION', 'Context overflow error, attempting aggressive truncation and retry', {
+          sessionId: session.sessionDbId,
+          error: errorMessage,
+          historyLength: session.conversationHistory.length
+        });
+
+        // Aggressive truncation: keep only pinned + current user message
+        truncateAggressively(session.conversationHistory);
+
+        try {
+          const result = await this.queryOpenAIMultiTurn(session.conversationHistory, apiKey, model, siteUrl, appName);
+
+          // Telemetry: retry succeeded
+          logger.info('TELEMETRY', 'contextOverflowRetrySucceeded', {
+            sessionId: session.sessionDbId,
+            provider: 'OpenAI',
+            newHistoryLength: session.conversationHistory.length
+          });
+
+          return result;
+        } catch (retryError) {
+          const retryErrorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+
+          // Telemetry: retry failed, skipping request
+          logger.info('TELEMETRY', 'contextOverflowSkipped', {
+            sessionId: session.sessionDbId,
+            provider: 'OpenAI',
+            error: retryErrorMessage
+          });
+
+          logger.error('TRUNCATION', 'Retry after aggressive truncation failed, skipping request', {
+            sessionId: session.sessionDbId,
+            error: retryErrorMessage
+          });
+          // Return empty content with skipped flag and reason - caller will handle gracefully
+          return { content: '', skipped: true, skipReason: retryErrorMessage };
+        }
+      }
+      // Re-throw non-context-overflow errors
+      throw error;
+    }
   }
 
   /**
@@ -346,6 +415,7 @@ export class OpenAIAgent {
   /**
    * Query OpenAI-compatible API via REST with full conversation history (multi-turn)
    * Sends the entire conversation context for coherent responses
+   * Note: Truncation is handled by caller before invoking this method
    */
   private async queryOpenAIMultiTurn(
     history: ConversationMessage[],
@@ -353,17 +423,13 @@ export class OpenAIAgent {
     model: string,
     siteUrl?: string,
     appName?: string
-  ): Promise<{ content: string; tokensUsed?: number }> {
-    // Truncate history to prevent runaway costs
-    const truncatedHistory = this.truncateHistory(history);
-    const messages = this.conversationToOpenAIMessages(truncatedHistory);
-    const totalChars = truncatedHistory.reduce((sum, m) => sum + m.content.length, 0);
-    const estimatedTokens = this.estimateTokens(truncatedHistory.map(m => m.content).join(''));
+  ): Promise<{ content: string; tokensUsed?: number; inputTokens?: number }> {
+    const messages = this.conversationToOpenAIMessages(history);
+    const totalChars = history.reduce((sum, m) => sum + m.content.length, 0);
 
     logger.debug('SDK', `Querying OpenAI multi-turn (${model})`, {
-      turns: truncatedHistory.length,
-      totalChars,
-      estimatedTokens
+      turns: history.length,
+      totalChars
     });
 
     const url = this.getOpenAIBaseUrl();
@@ -403,13 +469,13 @@ export class OpenAIAgent {
 
     const content = data.choices[0].message.content;
     const tokensUsed = data.usage?.total_tokens;
+    const inputTokens = data.usage?.prompt_tokens;
 
     // Log actual token usage for cost tracking
     if (tokensUsed) {
-      const inputTokens = data.usage?.prompt_tokens || 0;
       const outputTokens = data.usage?.completion_tokens || 0;
       // Token usage (cost varies by model and provider)
-      const estimatedCost = (inputTokens / 1000000 * 3) + (outputTokens / 1000000 * 15);
+      const estimatedCost = ((inputTokens || 0) / 1000000 * 3) + (outputTokens / 1000000 * 15);
 
       logger.info('SDK', 'OpenAI API usage', {
         model,
@@ -417,7 +483,7 @@ export class OpenAIAgent {
         outputTokens,
         totalTokens: tokensUsed,
         estimatedCostUSD: estimatedCost.toFixed(4),
-        messagesInContext: truncatedHistory.length
+        messagesInContext: history.length
       });
 
       // Warn if costs are getting high
@@ -429,13 +495,19 @@ export class OpenAIAgent {
       }
     }
 
-    return { content, tokensUsed };
+    return { content, tokensUsed, inputTokens };
   }
 
   /**
    * Get OpenAI-compatible configuration from settings or environment
    */
-  private getOpenAIConfig(): { apiKey: string; model: string; siteUrl?: string; appName?: string } {
+  private getOpenAIConfig(): {
+    apiKey: string;
+    model: string;
+    siteUrl?: string;
+    appName?: string;
+    truncationConfig: TruncationConfig;
+  } {
     const settingsPath = USER_SETTINGS_PATH;
     const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
 
@@ -449,7 +521,14 @@ export class OpenAIAgent {
     const siteUrl = settings.CLAUDE_MEM_OPENAI_SITE_URL || '';
     const appName = settings.CLAUDE_MEM_OPENAI_APP_NAME || 'claude-mem';
 
-    return { apiKey, model, siteUrl, appName };
+    // Truncation configuration
+    const truncationConfig: TruncationConfig = {
+      maxMessages: parseInt(settings.CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES) || 20,
+      maxTokens: parseInt(settings.CLAUDE_MEM_OPENAI_MAX_TOKENS) || 100000,
+      enabled: settings.CLAUDE_MEM_OPENAI_TRUNCATION_ENABLED !== 'false',
+    };
+
+    return { apiKey, model, siteUrl, appName, truncationConfig };
   }
 }
 

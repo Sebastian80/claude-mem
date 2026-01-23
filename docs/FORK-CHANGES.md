@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.6-jv.1`
+**Current Fork Version**: `9.0.6-jv.2`
 **Upstream Base**: `v9.0.6` (commit `c29d91a9`)
 **Last Merge**: 2026-01-23
 **Recent Updates**:
+- `9.0.6-jv.2`: Context Truncation - prevent runaway context growth for Gemini/OpenAI providers
 - `9.0.6-jv.1`: Merged upstream v9.0.6 (Windows console popup fixes, Chroma disabled on Windows)
 - `9.0.5-jv.11`: Settings Hot-Reload - apply provider/model changes without worker restart
 - `9.0.5-jv.10`: Dynamic Model Selection - URL normalization, dynamic model fetching, OpenRouter→OpenAI rename
@@ -24,60 +25,64 @@ Categories are ordered by severity (critical fixes first).
 | 1 | C: Zombie Process Cleanup | Memory leak fix - orphan SDK processes | 3 | Active |
 | 2 | A: Dynamic Path Resolution | Crash fix - hardcoded `thedotmack` paths | 2 | Active |
 | 3 | J: Gemini/OpenAI memorySessionId | Bugfix - non-Claude providers crash without UUID | 2 | Active |
-| 4 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
-| 5 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
-| 6 | H: Custom API Endpoints | Feature - configurable Gemini/OpenAI endpoints | 9 | Active |
-| 7 | K: Dynamic Model Selection | Feature - URL normalization, model fetching, OpenRouter→OpenAI | 15 | Active |
-| 8 | L: Settings Hot-Reload | Feature - apply settings changes without worker restart | 7 | Active |
-| 9 | I: Folder CLAUDE.md Optimization | Fix - disable by default, no empty files | 3 | Active |
-| 10 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
-| 11 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
-| 12 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
+| 4 | M: Context Truncation | Bugfix - prevent runaway context growth for Gemini/OpenAI | 8 | Active |
+| 5 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
+| 6 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
+| 7 | H: Custom API Endpoints | Feature - configurable Gemini/OpenAI endpoints | 9 | Active |
+| 8 | K: Dynamic Model Selection | Feature - URL normalization, model fetching, OpenRouter→OpenAI | 15 | Active |
+| 9 | L: Settings Hot-Reload | Feature - apply settings changes without worker restart | 7 | Active |
+| 10 | I: Folder CLAUDE.md Optimization | Fix - disable by default, no empty files | 3 | Active |
+| 11 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
+| 12 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
+| 13 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
 
 ### Files by Category
 
-| File | C | A | J | E | D | H | K | L | I | B | F | G |
-|------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `src/services/worker/SDKAgent.ts` | + | | | | | | | | | + | + | |
-| `src/services/worker/SessionManager.ts` | + | | | | | | | + | | + | | |
-| `src/services/worker-service.ts` | + | | | | | | + | + | | | | |
-| `src/services/worker-types.ts` | | | | | | | + | + | | | | |
-| `src/shared/worker-utils.ts` | | + | | | | | | | | | | |
-| `src/services/infrastructure/HealthMonitor.ts` | | + | | | | | | | | | | |
-| `plugin/scripts/worker-cli.js` | | + | | | | | | | | | | |
-| `plugin/scripts/smart-install.js` | | + | | | | | | | | | | |
-| `src/services/worker/BranchManager.ts` | | + | | | | | | | | | | |
-| `src/services/integrations/CursorHooksInstaller.ts` | | + | | | | | | | | | | |
-| `src/services/context/ContextBuilder.ts` | | + | | | | | | | | | | |
-| `src/services/sync/ChromaSync.ts` | | + | | | | | | | | | | |
-| `src/services/worker/GeminiAgent.ts` | | | + | | | + | + | | | | | |
-| `src/services/worker/OpenAIAgent.ts` | | | + | | | + | + | | | | | |
-| `src/services/worker/SearchManager.ts` | | | | + | | | | | | | | |
-| `src/services/sqlite/SessionSearch.ts` | | | | + | | | | | | | | |
-| `src/servers/mcp-server.ts` | | | | | + | | | | | | | |
-| `src/shared/SettingsDefaultsManager.ts` | | | | | | + | + | | + | + | + | |
-| `src/services/worker/http/routes/SettingsRoutes.ts` | | | | | | + | + | | | | | |
-| `src/services/worker/http/routes/SessionRoutes.ts` | | | | | | | + | + | | | | |
-| `src/services/worker/http/middleware.ts` | | | | | | + | | | | | | |
-| `src/ui/viewer/types.ts` | | | | | | + | + | | | | | |
-| `src/ui/viewer/constants/settings.ts` | | | | | | + | + | | | | | |
-| `src/ui/viewer/constants/api.ts` | | | | | | | + | | | | | |
-| `src/ui/viewer/hooks/useSettings.ts` | | | | | | + | + | | | | | |
-| `src/ui/viewer/hooks/useModelFetch.ts` | | | | | | | + | | | | | |
-| `src/ui/viewer/components/ContextSettingsModal.tsx` | | | | | | + | + | | | | | |
-| `src/utils/url-utils.ts` | | | | | | | + | | | | | |
-| `src/services/worker/agents/types.ts` | | | | | | | + | | | | | |
-| `src/utils/claude-md-utils.ts` | | | | | | | | | + | | | |
-| `src/services/worker/agents/ResponseProcessor.ts` | | | | | | | | + | + | | | |
-| `src/sdk/prompts.ts` | | | | | | | | | | + | | |
-| `src/services/queue/SessionQueueProcessor.ts` | | | | | | | | + | | + | | |
-| `src/services/worker/settings/SettingsWatcher.ts` | | | | | | | | + | | | | |
-| `src/cli/handlers/session-init.ts` | | | | | | | | | | | + | |
-| `package.json` | | | | | | | | | | | | + |
-| `plugin/package.json` | | | | | | | | | | | | + |
-| `plugin/.claude-plugin/plugin.json` | | | | | | | | | | | | + |
-| `.claude-plugin/marketplace.json` | | | | | | | | | | | | + |
-| `README.md` | | | | | | | + | | | | | |
+| File | C | A | J | M | E | D | H | K | L | I | B | F | G |
+|------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `src/services/worker/SDKAgent.ts` | + | | | | | | | | | | + | + | |
+| `src/services/worker/SessionManager.ts` | + | | | | | | | | + | | + | | |
+| `src/services/worker-service.ts` | + | | | | | | | + | + | | | | |
+| `src/services/worker-types.ts` | | | | + | | | | + | + | | | | |
+| `src/shared/worker-utils.ts` | | + | | | | | | | | | | | |
+| `src/services/infrastructure/HealthMonitor.ts` | | + | | | | | | | | | | | |
+| `plugin/scripts/worker-cli.js` | | + | | | | | | | | | | | |
+| `plugin/scripts/smart-install.js` | | + | | | | | | | | | | | |
+| `src/services/worker/BranchManager.ts` | | + | | | | | | | | | | | |
+| `src/services/integrations/CursorHooksInstaller.ts` | | + | | | | | | | | | | | |
+| `src/services/context/ContextBuilder.ts` | | + | | | | | | | | | | | |
+| `src/services/sync/ChromaSync.ts` | | + | | | | | | | | | | | |
+| `src/services/worker/GeminiAgent.ts` | | | + | + | | | + | + | | | | | |
+| `src/services/worker/OpenAIAgent.ts` | | | + | + | | | + | + | | | | | |
+| `src/services/worker/SearchManager.ts` | | | | | + | | | | | | | | |
+| `src/services/sqlite/SessionSearch.ts` | | | | | + | | | | | | | | |
+| `src/servers/mcp-server.ts` | | | | | | + | | | | | | | |
+| `src/shared/SettingsDefaultsManager.ts` | | | | + | | | + | + | | + | + | + | |
+| `src/services/worker/http/routes/SettingsRoutes.ts` | | | | | | | + | + | | | | | |
+| `src/services/worker/http/routes/SessionRoutes.ts` | | | | | | | | + | + | | | | |
+| `src/services/worker/http/middleware.ts` | | | | | | | + | | | | | | |
+| `src/ui/viewer/types.ts` | | | | | | | + | + | | | | | |
+| `src/ui/viewer/constants/settings.ts` | | | | | | | + | + | | | | | |
+| `src/ui/viewer/constants/api.ts` | | | | | | | | + | | | | | |
+| `src/ui/viewer/hooks/useSettings.ts` | | | | | | | + | + | | | | | |
+| `src/ui/viewer/hooks/useModelFetch.ts` | | | | | | | | + | | | | | |
+| `src/ui/viewer/components/ContextSettingsModal.tsx` | | | | | | | + | + | | | | | |
+| `src/utils/url-utils.ts` | | | | | | | | + | | | | | |
+| `src/services/worker/agents/types.ts` | | | | + | | | | + | | | | | |
+| `src/services/worker/agents/FallbackErrorHandler.ts` | | | | + | | | | | | | | | |
+| `src/services/worker/agents/index.ts` | | | | + | | | | | | | | | |
+| `src/services/worker/utils/HistoryTruncation.ts` | | | | + | | | | | | | | | |
+| `src/utils/claude-md-utils.ts` | | | | | | | | | | + | | | |
+| `src/services/worker/agents/ResponseProcessor.ts` | | | | | | | | | + | + | | | |
+| `src/sdk/prompts.ts` | | | | | | | | | | | + | | |
+| `src/services/queue/SessionQueueProcessor.ts` | | | | | | | | | + | | + | | |
+| `src/services/worker/settings/SettingsWatcher.ts` | | | | | | | | | + | | | | |
+| `src/cli/handlers/session-init.ts` | | | | | | | | | | | | + | |
+| `package.json` | | | | | | | | | | | | | + |
+| `plugin/package.json` | | | | | | | | | | | | | + |
+| `plugin/.claude-plugin/plugin.json` | | | | | | | | | | | | | + |
+| `.claude-plugin/marketplace.json` | | | | | | | | | | | | | + |
+| `README.md` | | | | | | | | + | | | | | |
 
 ---
 
@@ -529,6 +534,78 @@ grep -n 'tryRestartGeneratorAsync' src/services/worker/http/routes/SessionRoutes
 ```
 
 **Plan**: `docs/plans/2026-01-23-settings-hot-reload.md`
+
+---
+
+### Category M: Context Truncation (Priority 4)
+
+**Problem**: Gemini and OpenAI providers experience runaway context growth:
+1. Assistant responses were appended twice (once in agent, once in ResponseProcessor)
+2. No truncation mechanism existed for Gemini
+3. OpenAI truncation used estimated tokens (chars/4) instead of actual API-reported tokens
+
+**Solution**: Three-part fix:
+1. Remove duplicate history appends (centralize in ResponseProcessor)
+2. Implement shared truncation utility with pinned message support
+3. Add retry-on-context-error with aggressive truncation
+
+**Files**:
+| File | Change |
+|------|--------|
+| `src/services/worker/GeminiAgent.ts` | Remove duplicate appends, add truncation, add `queryWithRetry()` |
+| `src/services/worker/OpenAIAgent.ts` | Remove duplicate appends, use shared truncation, add `queryWithRetry()` |
+| `src/services/worker/utils/HistoryTruncation.ts` | NEW - Shared truncation utility |
+| `src/services/worker/agents/FallbackErrorHandler.ts` | Add `isContextOverflowError()` function |
+| `src/services/worker/agents/types.ts` | Add `CONTEXT_OVERFLOW_PATTERNS` constant |
+| `src/services/worker/agents/index.ts` | Export new functions |
+| `src/services/worker-types.ts` | Add `lastInputTokens` to `ActiveSession` |
+| `src/shared/SettingsDefaultsManager.ts` | Add truncation settings for both providers |
+
+**Configuration** (`~/.claude-mem/settings.json`):
+```json
+{
+  "CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES": "20",
+  "CLAUDE_MEM_GEMINI_MAX_TOKENS": "100000",
+  "CLAUDE_MEM_GEMINI_TRUNCATION_ENABLED": "true",
+  "CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES": "20",
+  "CLAUDE_MEM_OPENAI_MAX_TOKENS": "100000",
+  "CLAUDE_MEM_OPENAI_TRUNCATION_ENABLED": "true"
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES` | `"20"` | Max messages before truncation |
+| `CLAUDE_MEM_GEMINI_MAX_TOKENS` | `"100000"` | Max tokens before truncation |
+| `CLAUDE_MEM_GEMINI_TRUNCATION_ENABLED` | `"true"` | Enable/disable truncation |
+| `CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES` | `"20"` | Max messages before truncation |
+| `CLAUDE_MEM_OPENAI_MAX_TOKENS` | `"100000"` | Max tokens before truncation |
+| `CLAUDE_MEM_OPENAI_TRUNCATION_ENABLED` | `"true"` | Enable/disable truncation |
+
+**Key Features**:
+- **Pinned messages**: Init/continuation prompts are never dropped (detected by `<user_request>` + `<requested_at>` markers)
+- **Safety margin**: Triggers at 90% of max tokens, truncates TO 90%
+- **API-reported tokens**: Uses actual `prompt_tokens` from API response as trigger signal
+- **Heuristic fallback**: Uses message count + char estimate when API tokens unavailable
+- **Error recovery**: On context overflow error, aggressively truncates and retries once
+- **Telemetry**: Logs `contextOverflowDetected`, `contextOverflowRetrySucceeded`, `contextOverflowSkipped`
+
+**Verification**:
+```bash
+# Check truncation utility exists
+ls -la src/services/worker/utils/HistoryTruncation.ts
+
+# Check settings are defined
+grep -n 'CLAUDE_MEM_GEMINI_MAX_TOKENS\|CLAUDE_MEM_OPENAI_MAX_TOKENS' src/shared/SettingsDefaultsManager.ts
+
+# Check error detection
+grep -n 'isContextOverflowError' src/services/worker/agents/FallbackErrorHandler.ts
+
+# Check agents use truncation
+grep -n 'truncateHistory\|queryWithRetry' src/services/worker/GeminiAgent.ts src/services/worker/OpenAIAgent.ts
+```
+
+**Plan**: `docs/plans/2026-01-23-plan-1-gemini-openai-context-truncation.md`
 
 ---
 

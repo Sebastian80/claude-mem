@@ -23,6 +23,9 @@ export interface SettingsDefaults {
   CLAUDE_MEM_GEMINI_API_KEY: string;
   CLAUDE_MEM_GEMINI_MODEL: string;  // 'gemini-2.5-flash-lite' | 'gemini-2.5-flash' | 'gemini-3-flash'
   CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: string;  // 'true' | 'false' - enable rate limiting for free tier
+  CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES: string;   // Max messages in context window
+  CLAUDE_MEM_GEMINI_MAX_TOKENS: string;             // Max estimated tokens for truncation
+  CLAUDE_MEM_GEMINI_TRUNCATION_ENABLED: string;     // 'true' | 'false' - enable context truncation
   // OpenAI-Compatible Provider (formerly OpenRouter)
   CLAUDE_MEM_OPENAI_API_KEY: string;
   CLAUDE_MEM_OPENAI_MODEL: string;
@@ -30,6 +33,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_OPENAI_APP_NAME: string;
   CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES: string;
   CLAUDE_MEM_OPENAI_MAX_TOKENS: string;
+  CLAUDE_MEM_OPENAI_TRUNCATION_ENABLED: string;     // 'true' | 'false' - enable context truncation
   CLAUDE_MEM_OPENAI_BASE_URL: string;
   // Legacy OpenRouter keys (deprecated, migrated to OPENAI)
   CLAUDE_MEM_OPENROUTER_API_KEY?: string;
@@ -86,6 +90,9 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_GEMINI_API_KEY: '',  // Empty by default, can be set via UI or env
     CLAUDE_MEM_GEMINI_MODEL: 'gemini-2.5-flash-lite',  // Default Gemini model (highest free tier RPM)
     CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: 'true',  // Rate limiting ON by default for free tier users
+    CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES: '20',     // Max messages in context window
+    CLAUDE_MEM_GEMINI_MAX_TOKENS: '100000',           // Max estimated tokens (~100k safety limit)
+    CLAUDE_MEM_GEMINI_TRUNCATION_ENABLED: 'true',     // Truncation ON by default
     // OpenAI-Compatible Provider (formerly OpenRouter)
     CLAUDE_MEM_OPENAI_API_KEY: '',  // Empty by default, can be set via UI or env
     CLAUDE_MEM_OPENAI_MODEL: 'xiaomi/mimo-v2-flash:free',  // Default model (free tier on OpenRouter)
@@ -93,6 +100,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_OPENAI_APP_NAME: 'claude-mem',  // App name for analytics
     CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES: '20',  // Max messages in context window
     CLAUDE_MEM_OPENAI_MAX_TOKENS: '100000',  // Max estimated tokens (~100k safety limit)
+    CLAUDE_MEM_OPENAI_TRUNCATION_ENABLED: 'true',  // Truncation ON by default
     CLAUDE_MEM_OPENAI_BASE_URL: 'https://openrouter.ai/api/v1/chat/completions',  // Default to OpenRouter
     // Custom API Endpoints (empty = use hardcoded defaults)
     CLAUDE_MEM_GEMINI_BASE_URL: '',

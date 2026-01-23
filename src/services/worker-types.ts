@@ -30,6 +30,7 @@ export interface ActiveSession {
   startTime: number;
   cumulativeInputTokens: number;   // Track input tokens for discovery cost
   cumulativeOutputTokens: number;  // Track output tokens for discovery cost
+  lastInputTokens?: number;        // Last API-reported input tokens (for truncation trigger)
   earliestPendingTimestamp: number | null;  // Original timestamp of earliest pending message (for accurate observation timestamps)
   conversationHistory: ConversationMessage[];  // Shared conversation history for provider switching
   currentProvider: 'claude' | 'gemini' | 'openai' | null;  // Track which provider is currently running

@@ -23,9 +23,16 @@ import {
   processAgentResponse,
   shouldFallbackToClaude,
   isAbortError,
+  isContextOverflowError,
   type WorkerRef,
   type FallbackAgent
 } from './agents/index.js';
+import {
+  truncateHistory,
+  truncateAggressively,
+  shouldTruncate,
+  type TruncationConfig
+} from './utils/HistoryTruncation.js';
 
 // Gemini API endpoint (default, can be overridden via settings)
 const DEFAULT_GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -135,7 +142,7 @@ export class GeminiAgent {
   async startSession(session: ActiveSession, worker?: WorkerRef): Promise<void> {
     try {
       // Get Gemini configuration
-      const { apiKey, model, rateLimitingEnabled } = this.getGeminiConfig();
+      const { apiKey, model, rateLimitingEnabled, truncationConfig } = this.getGeminiConfig();
 
       if (!apiKey) {
         throw new Error('Gemini API key not configured. Set CLAUDE_MEM_GEMINI_API_KEY in settings or GEMINI_API_KEY environment variable.');
@@ -160,18 +167,27 @@ export class GeminiAgent {
         ? buildInitPrompt(session.project, session.contentSessionId, session.userPrompt, mode)
         : buildContinuationPrompt(session.userPrompt, session.lastPromptNumber, session.contentSessionId, mode);
 
+      // Truncate before init call if history is already large (e.g., provider switch)
+      if (shouldTruncate(session.lastInputTokens, truncationConfig, session.conversationHistory)) {
+        truncateHistory(session.conversationHistory, truncationConfig, session.lastInputTokens);
+      }
+
       // Add to conversation history and query Gemini with full context
       session.conversationHistory.push({ role: 'user', content: initPrompt });
       const initResponse = await this.queryGeminiMultiTurn(session.conversationHistory, apiKey, model, rateLimitingEnabled);
 
       if (initResponse.content) {
-        // Add response to conversation history
-        session.conversationHistory.push({ role: 'assistant', content: initResponse.content });
+        // Note: Response is added to conversation history by ResponseProcessor (centralized)
 
         // Track token usage
         const tokensUsed = initResponse.tokensUsed || 0;
         session.cumulativeInputTokens += Math.floor(tokensUsed * 0.7);  // Rough estimate
         session.cumulativeOutputTokens += Math.floor(tokensUsed * 0.3);
+
+        // Track actual input tokens for truncation trigger
+        if (initResponse.inputTokens !== undefined) {
+          session.lastInputTokens = initResponse.inputTokens;
+        }
 
         // Process response using shared ResponseProcessor (no original timestamp for init - not from queue)
         await processAgentResponse(
@@ -220,18 +236,34 @@ export class GeminiAgent {
             cwd: message.cwd
           });
 
-          // Add to conversation history and query Gemini with full context
+          // Check if truncation is needed before adding new message
+          if (shouldTruncate(session.lastInputTokens, truncationConfig, session.conversationHistory)) {
+            truncateHistory(session.conversationHistory, truncationConfig, session.lastInputTokens);
+          }
+
+          // Add to conversation history and query Gemini with retry-on-context-error
           session.conversationHistory.push({ role: 'user', content: obsPrompt });
-          const obsResponse = await this.queryGeminiMultiTurn(session.conversationHistory, apiKey, model, rateLimitingEnabled);
+          const obsResponse = await this.queryWithRetry(session, apiKey, model, rateLimitingEnabled);
 
           let tokensUsed = 0;
           if (obsResponse.content) {
-            // Add response to conversation history
-            session.conversationHistory.push({ role: 'assistant', content: obsResponse.content });
+            // Note: Response is added to conversation history by ResponseProcessor (centralized)
 
             tokensUsed = obsResponse.tokensUsed || 0;
             session.cumulativeInputTokens += Math.floor(tokensUsed * 0.7);
             session.cumulativeOutputTokens += Math.floor(tokensUsed * 0.3);
+
+            // Track actual input tokens for truncation trigger
+            if (obsResponse.inputTokens !== undefined) {
+              session.lastInputTokens = obsResponse.inputTokens;
+            }
+          } else if (obsResponse.skipped) {
+            // Observation was skipped due to unrecoverable context overflow
+            // Still call processAgentResponse to complete the cycle (decrement in-flight counter)
+            logger.warn('SDK', 'Observation skipped due to context overflow', {
+              sessionId: session.sessionDbId,
+              toolName: message.tool_name
+            });
           }
 
           // Process response using shared ResponseProcessor
@@ -257,18 +289,32 @@ export class GeminiAgent {
             last_assistant_message: message.last_assistant_message || ''
           }, mode);
 
-          // Add to conversation history and query Gemini with full context
+          // Check if truncation is needed before adding new message
+          if (shouldTruncate(session.lastInputTokens, truncationConfig, session.conversationHistory)) {
+            truncateHistory(session.conversationHistory, truncationConfig, session.lastInputTokens);
+          }
+
+          // Add to conversation history and query Gemini with retry-on-context-error
           session.conversationHistory.push({ role: 'user', content: summaryPrompt });
-          const summaryResponse = await this.queryGeminiMultiTurn(session.conversationHistory, apiKey, model, rateLimitingEnabled);
+          const summaryResponse = await this.queryWithRetry(session, apiKey, model, rateLimitingEnabled);
 
           let tokensUsed = 0;
           if (summaryResponse.content) {
-            // Add response to conversation history
-            session.conversationHistory.push({ role: 'assistant', content: summaryResponse.content });
+            // Note: Response is added to conversation history by ResponseProcessor (centralized)
 
             tokensUsed = summaryResponse.tokensUsed || 0;
             session.cumulativeInputTokens += Math.floor(tokensUsed * 0.7);
             session.cumulativeOutputTokens += Math.floor(tokensUsed * 0.3);
+
+            // Track actual input tokens for truncation trigger
+            if (summaryResponse.inputTokens !== undefined) {
+              session.lastInputTokens = summaryResponse.inputTokens;
+            }
+          } else if (summaryResponse.skipped) {
+            // Summary was skipped due to unrecoverable context overflow
+            logger.warn('SDK', 'Summary skipped due to context overflow', {
+              sessionId: session.sessionDbId
+            });
           }
 
           // Process response using shared ResponseProcessor
@@ -330,6 +376,79 @@ export class GeminiAgent {
   }
 
   /**
+   * Query Gemini with retry-on-context-error.
+   * If the first attempt fails with a context overflow error, aggressively truncate and retry once.
+   *
+   * @param session - Active session (history will be mutated on aggressive truncation)
+   * @param apiKey - Gemini API key
+   * @param model - Gemini model to use
+   * @param rateLimitingEnabled - Whether rate limiting is enabled
+   * @returns Response content and token usage, or empty content if both attempts fail
+   */
+  private async queryWithRetry(
+    session: ActiveSession,
+    apiKey: string,
+    model: GeminiModel,
+    rateLimitingEnabled: boolean
+  ): Promise<{ content: string; tokensUsed?: number; inputTokens?: number; skipped?: boolean; skipReason?: string }> {
+    try {
+      return await this.queryGeminiMultiTurn(session.conversationHistory, apiKey, model, rateLimitingEnabled);
+    } catch (error) {
+      if (isContextOverflowError(error)) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Telemetry: context overflow detected
+        logger.info('TELEMETRY', 'contextOverflowDetected', {
+          sessionId: session.sessionDbId,
+          provider: 'Gemini',
+          historyLength: session.conversationHistory.length,
+          error: errorMessage
+        });
+
+        logger.warn('TRUNCATION', 'Context overflow error, attempting aggressive truncation and retry', {
+          sessionId: session.sessionDbId,
+          error: errorMessage,
+          historyLength: session.conversationHistory.length
+        });
+
+        // Aggressive truncation: keep only pinned + current user message
+        truncateAggressively(session.conversationHistory);
+
+        try {
+          const result = await this.queryGeminiMultiTurn(session.conversationHistory, apiKey, model, rateLimitingEnabled);
+
+          // Telemetry: retry succeeded
+          logger.info('TELEMETRY', 'contextOverflowRetrySucceeded', {
+            sessionId: session.sessionDbId,
+            provider: 'Gemini',
+            newHistoryLength: session.conversationHistory.length
+          });
+
+          return result;
+        } catch (retryError) {
+          const retryErrorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+
+          // Telemetry: retry failed, skipping request
+          logger.info('TELEMETRY', 'contextOverflowSkipped', {
+            sessionId: session.sessionDbId,
+            provider: 'Gemini',
+            error: retryErrorMessage
+          });
+
+          logger.error('TRUNCATION', 'Retry after aggressive truncation failed, skipping request', {
+            sessionId: session.sessionDbId,
+            error: retryErrorMessage
+          });
+          // Return empty content with skipped flag and reason - caller will handle gracefully
+          return { content: '', skipped: true, skipReason: retryErrorMessage };
+        }
+      }
+      // Re-throw non-context-overflow errors
+      throw error;
+    }
+  }
+
+  /**
    * Get Gemini base URL from settings or environment.
    * Returns the raw URL; normalization is handled by buildGeminiApiUrl.
    */
@@ -351,7 +470,7 @@ export class GeminiAgent {
     apiKey: string,
     model: GeminiModel,
     rateLimitingEnabled: boolean
-  ): Promise<{ content: string; tokensUsed?: number }> {
+  ): Promise<{ content: string; tokensUsed?: number; inputTokens?: number }> {
     const contents = this.conversationToGeminiContents(history);
     const totalChars = history.reduce((sum, m) => sum + m.content.length, 0);
 
@@ -395,14 +514,20 @@ export class GeminiAgent {
 
     const content = data.candidates[0].content.parts[0].text;
     const tokensUsed = data.usageMetadata?.totalTokenCount;
+    const inputTokens = data.usageMetadata?.promptTokenCount;
 
-    return { content, tokensUsed };
+    return { content, tokensUsed, inputTokens };
   }
 
   /**
    * Get Gemini configuration from settings or environment
    */
-  private getGeminiConfig(): { apiKey: string; model: GeminiModel; rateLimitingEnabled: boolean } {
+  private getGeminiConfig(): {
+    apiKey: string;
+    model: GeminiModel;
+    rateLimitingEnabled: boolean;
+    truncationConfig: TruncationConfig;
+  } {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
 
     // API key: check settings first, then environment variable
@@ -448,7 +573,14 @@ export class GeminiAgent {
     // Rate limiting: enabled by default for free tier users
     const rateLimitingEnabled = settings.CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED !== 'false';
 
-    return { apiKey, model, rateLimitingEnabled };
+    // Truncation configuration
+    const truncationConfig: TruncationConfig = {
+      maxMessages: parseInt(settings.CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES) || 20,
+      maxTokens: parseInt(settings.CLAUDE_MEM_GEMINI_MAX_TOKENS) || 100000,
+      enabled: settings.CLAUDE_MEM_GEMINI_TRUNCATION_ENABLED !== 'false',
+    };
+
+    return { apiKey, model, rateLimitingEnabled, truncationConfig };
   }
 }
 

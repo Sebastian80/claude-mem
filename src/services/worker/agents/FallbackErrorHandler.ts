@@ -1,13 +1,13 @@
 /**
- * FallbackErrorHandler: Error detection for provider fallback
+ * FallbackErrorHandler: Error detection for provider fallback and context overflow
  *
  * Responsibility:
  * - Determine if an error should trigger fallback to Claude SDK
+ * - Detect context overflow errors that can be recovered via truncation
  * - Provide consistent error classification across Gemini and OpenAI-compatible providers
  */
 
-import { FALLBACK_ERROR_PATTERNS } from './types.js';
-import { logger } from '../../../utils/logger.js';
+import { FALLBACK_ERROR_PATTERNS, CONTEXT_OVERFLOW_PATTERNS } from './types.js';
 
 /**
  * Check if an error should trigger fallback to Claude SDK
@@ -26,6 +26,25 @@ export function shouldFallbackToClaude(error: unknown): boolean {
   const message = getErrorMessage(error);
 
   return FALLBACK_ERROR_PATTERNS.some(pattern => message.includes(pattern));
+}
+
+/**
+ * Check if an error indicates context overflow (too many tokens)
+ *
+ * These errors can potentially be recovered by aggressive truncation:
+ * - 400 with "context length exceeded"
+ * - 400 with "maximum context length"
+ * - 400 with "too many tokens"
+ * - 400 with "input too long"
+ * - Gemini: "RESOURCE_EXHAUSTED" or "context window"
+ *
+ * @param error - Error object to check
+ * @returns true if the error indicates context overflow
+ */
+export function isContextOverflowError(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+
+  return CONTEXT_OVERFLOW_PATTERNS.some(pattern => message.includes(pattern.toLowerCase()));
 }
 
 /**

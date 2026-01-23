@@ -23,7 +23,7 @@ export type {
   BaseAgentConfig,
 } from './types.js';
 
-export { FALLBACK_ERROR_PATTERNS } from './types.js';
+export { FALLBACK_ERROR_PATTERNS, CONTEXT_OVERFLOW_PATTERNS } from './types.js';
 
 // Response Processing
 export { processAgentResponse } from './ResponseProcessor.js';
@@ -35,4 +35,4 @@ export { broadcastObservation, broadcastSummary } from './ObservationBroadcaster
 export { cleanupProcessedMessages } from './SessionCleanupHelper.js';
 
 // Error Handling
-export { shouldFallbackToClaude, isAbortError } from './FallbackErrorHandler.js';
+export { shouldFallbackToClaude, isAbortError, isContextOverflowError } from './FallbackErrorHandler.js';

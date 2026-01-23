@@ -131,3 +131,28 @@ export const FALLBACK_ERROR_PATTERNS = [
   'ETIMEDOUT',     // Timeout
   'fetch failed',  // Network failure
 ] as const;
+
+/**
+ * Error patterns that indicate context overflow (too many tokens)
+ * These can potentially be recovered by aggressive truncation
+ */
+export const CONTEXT_OVERFLOW_PATTERNS = [
+  'context length exceeded',
+  'maximum context length',
+  'too many tokens',
+  'input too long',
+  'context_length_exceeded',
+  'token limit',
+  'RESOURCE_EXHAUSTED',  // Gemini
+  'context window',
+  'exceeds the model',
+  'request too large',
+  // Additional patterns from OpenAI-compatible APIs
+  'prompt is too long',
+  'reduce the length',
+  'Please reduce the length of the messages',
+  'Request payload size exceeds',
+  'payload too large',
+  'entity too large',
+  '413',  // HTTP 413 Payload Too Large
+] as const;
