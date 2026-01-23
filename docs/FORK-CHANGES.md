@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.6-jv.3`
+**Current Fork Version**: `9.0.6-jv.4`
 **Upstream Base**: `v9.0.6` (commit `c29d91a9`)
 **Last Merge**: 2026-01-23
 **Recent Updates**:
+- `9.0.6-jv.4`: Infinite Rollover Loop Fix - reset lastInputTokens after rollover to prevent immediate re-trigger
 - `9.0.6-jv.3`: Claude Session Rollover - restart SDK sessions when context grows too large
 - `9.0.6-jv.2`: Context Truncation - prevent runaway context growth for Gemini/OpenAI providers
 - `9.0.6-jv.1`: Merged upstream v9.0.6 (Windows console popup fixes, Chroma disabled on Windows)

@@ -2,7 +2,7 @@
 
 **Issue**: `docs/issues/2026-01-22-01-settings-hot-reload-requires-worker-restart.md`
 **Date**: 2026-01-23
-**Status**: ✅ Complete - Ready for Release
+**Status**: ✅ Complete - Released in v9.0.6-jv.4
 
 ## Codex Review History
 
@@ -10,6 +10,23 @@
 |------|--------|--------|
 | 2026-01-23 | Initial review | Feedback incorporated |
 | 2026-01-23 | Re-review | **Approved for Phase 1** |
+
+## Bug Fixes (v9.0.6-jv.4)
+
+### Infinite Rollover Loop Fix
+
+**Problem**: After Claude rollover, the first API call returned similar token count (conversation history still large), which immediately triggered another rollover - causing an infinite restart loop.
+
+**Root Cause**: `lastInputTokens` was not reset after rollover execution. The rollover check `lastInputTokens > threshold` remained true even after fresh session start.
+
+**Fix** (commit `f484a0b7`):
+- Reset `session.lastInputTokens` to `undefined` after clearing `claudeResumeSessionId`
+- Persist `null` to database via `updateLastInputTokens(sessionDbId, null)`
+- Updated `SessionStore.updateLastInputTokens()` to accept `null` type
+
+**Files Changed**:
+- `src/services/worker/http/routes/SessionRoutes.ts:165-169` - Reset lastInputTokens after rollover
+- `src/services/sqlite/SessionStore.ts:710-711` - Accept null parameter
 
 ### Review #1 Feedback (2026-01-23)
 
@@ -594,4 +611,4 @@ eventBroadcaster.broadcastSettingsChanged({
 
 ## Version Plan
 
-This will be released as part of **v9.0.5-jv.11** or **v9.0.6**.
+Released in **v9.0.6-jv.4** with infinite rollover loop fix.
