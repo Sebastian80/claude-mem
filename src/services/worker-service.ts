@@ -60,6 +60,8 @@ import { SearchManager } from './worker/SearchManager.js';
 import { FormattingService } from './worker/FormattingService.js';
 import { TimelineService } from './worker/TimelineService.js';
 import { SessionEventBroadcaster } from './worker/events/SessionEventBroadcaster.js';
+import { SettingsWatcher, SettingsChangeEvent, RESTART_TRIGGER_KEYS } from './worker/settings/SettingsWatcher.js';
+import { USER_SETTINGS_PATH } from '../shared/paths.js';
 
 // HTTP route handlers
 import { ViewerRoutes } from './worker/http/routes/ViewerRoutes.js';
@@ -117,6 +119,9 @@ export class WorkerService {
   // Route handlers
   private searchRoutes: SearchRoutes | null = null;
 
+  // Settings watcher for hot-reload
+  private settingsWatcher: SettingsWatcher;
+
   // Initialization tracking
   private initializationComplete: Promise<void>;
   private resolveInitialization!: () => void;
@@ -147,6 +152,12 @@ export class WorkerService {
     // Set callback for killing orphan subprocesses (injected to avoid circular deps)
     this.sessionManager.setOnKillOrphanSubprocesses((memorySessionId: string) => {
       return this.sdkAgent.killOrphanSubprocesses(memorySessionId);
+    });
+
+    // Initialize settings watcher for hot-reload
+    this.settingsWatcher = new SettingsWatcher(USER_SETTINGS_PATH);
+    this.settingsWatcher.on('change', (event: SettingsChangeEvent) => {
+      this.handleSettingsChange(event);
     });
 
     // Initialize MCP client
@@ -298,6 +309,9 @@ export class WorkerService {
       this.resolveInitialization();
       logger.info('SYSTEM', 'Background initialization complete');
 
+      // Start settings watcher for hot-reload
+      this.settingsWatcher.start();
+
       // Auto-recover orphaned queues (fire-and-forget with error logging)
       this.processPendingQueues(50).then(result => {
         if (result.sessionsStarted > 0) {
@@ -399,6 +413,9 @@ export class WorkerService {
    * Shutdown the worker service
    */
   async shutdown(): Promise<void> {
+    // Stop settings watcher to prevent process leak
+    this.settingsWatcher.stop();
+
     await performGracefulShutdown({
       server: this.server.getHttpServer(),
       sessionManager: this.sessionManager,
@@ -425,6 +442,39 @@ export class WorkerService {
       type: 'processing_status',
       isProcessing,
       queueDepth
+    });
+  }
+
+  /**
+   * Handle settings file changes (hot-reload)
+   * Schedules generator restarts for active sessions when provider/model changes
+   */
+  private handleSettingsChange(event: SettingsChangeEvent): void {
+    if (!event.restartRequired) {
+      logger.debug('SETTINGS', 'Settings changed but no restart required', {
+        changedKeys: event.changedKeys
+      });
+      return;
+    }
+
+    // Find restart-trigger keys that changed
+    const restartKeys = event.changedKeys.filter(key =>
+      RESTART_TRIGGER_KEYS.includes(key)
+    );
+
+    logger.info('SETTINGS', 'Settings changed - scheduling generator restarts', {
+      restartKeys,
+      activeSessions: this.sessionManager.getActiveSessionCount()
+    });
+
+    // Mark all active sessions for restart
+    this.sessionManager.scheduleRestartsForSettingsChange(restartKeys.join(','));
+
+    // Broadcast settings change to UI
+    this.sseBroadcaster.broadcast({
+      type: 'settings_changed',
+      changedKeys: event.changedKeys,
+      restartRequired: true
     });
   }
 }

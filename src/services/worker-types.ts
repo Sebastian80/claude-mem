@@ -33,6 +33,12 @@ export interface ActiveSession {
   earliestPendingTimestamp: number | null;  // Original timestamp of earliest pending message (for accurate observation timestamps)
   conversationHistory: ConversationMessage[];  // Shared conversation history for provider switching
   currentProvider: 'claude' | 'gemini' | 'openai' | null;  // Track which provider is currently running
+  // Settings hot-reload support
+  pendingRestart?: { reason: string; requestedAt: number } | null;  // Pending restart request when settings change
+  generatorIdle?: boolean;  // True when generator is waiting for new messages (safe to restart)
+  idleSince?: number | null;  // Timestamp when generator became idle (for debugging)
+  currentGeneratorId?: string | null;  // Unique ID for current generator instance (prevents .finally() race)
+  inFlightCount?: number;  // Count of claimed-but-unprocessed messages (for SDK prefetch safety)
 }
 
 export interface PendingMessage {

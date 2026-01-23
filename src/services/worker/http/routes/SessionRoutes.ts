@@ -24,6 +24,8 @@ import { USER_SETTINGS_PATH } from '../../../../shared/paths.js';
 
 export class SessionRoutes extends BaseRouteHandler {
   private completionHandler: SessionCompletionHandler;
+  private pendingRestartListeners: Map<number, (sid: number, reason: string) => void> = new Map();
+  private restartInProgress: Set<number> = new Set();  // Mutex for concurrent restart prevention
 
   constructor(
     private sessionManager: SessionManager,
@@ -114,6 +116,7 @@ export class SessionRoutes extends BaseRouteHandler {
 
   /**
    * Start a generator with the specified provider
+   * Includes generator identity tracking for safe hot-reload restarts
    */
   private startGeneratorWithProvider(
     session: ReturnType<typeof this.sessionManager.getSession>,
@@ -137,8 +140,19 @@ export class SessionRoutes extends BaseRouteHandler {
       }
     }
 
-    // DIAGNOSTIC: Generate unique ID for this generator instance
+    // Generate unique ID for this generator instance (for race detection)
     const generatorId = `gen-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    // Store generator ID on session for .finally() race detection
+    session.currentGeneratorId = generatorId;
+
+    // Capture the AbortController used for THIS generator (immutable reference)
+    const thisAbortController = session.abortController;
+
+    // CRITICAL: Reset idle state when starting a new generator
+    session.generatorIdle = false;
+    session.idleSince = null;
+    session.inFlightCount = 0;
 
     // DIAGNOSTIC: Check if generator is already running (potential bug)
     if (session.generatorPromise) {
@@ -161,10 +175,13 @@ export class SessionRoutes extends BaseRouteHandler {
     // Track which provider is running
     session.currentProvider = provider;
 
+    // Set up pending-restart listener for this session
+    this.setupPendingRestartListener(session.sessionDbId);
+
     session.generatorPromise = agent.startSession(session, this.workerService)
       .catch(error => {
         // Only log non-abort errors
-        if (session.abortController.signal.aborted) {
+        if (thisAbortController.signal.aborted) {
           logger.debug('SESSION', `Generator ${generatorId} caught error after abort (expected)`, {
             sessionId: session.sessionDbId
           });
@@ -196,7 +213,16 @@ export class SessionRoutes extends BaseRouteHandler {
       })
       .finally(() => {
         const sessionDbId = session.sessionDbId;
-        const wasAborted = session.abortController.signal.aborted;
+        const wasAborted = thisAbortController.signal.aborted;
+
+        // CRITICAL: Only mutate session state if this generator is still current
+        // This prevents hot-reload race where old .finally() clobbers new generator
+        if (session.currentGeneratorId !== generatorId) {
+          logger.debug('SESSION', `Generator ${generatorId} .finally() skipped - superseded by ${session.currentGeneratorId}`, {
+            sessionId: sessionDbId
+          });
+          return;
+        }
 
         // DIAGNOSTIC: Log generator end with full context
         logger.info('SESSION', `Generator ENDED | id=${generatorId} | wasAborted=${wasAborted}`, {
@@ -208,6 +234,11 @@ export class SessionRoutes extends BaseRouteHandler {
 
         session.generatorPromise = null;
         session.currentProvider = null;
+        session.currentGeneratorId = null;
+
+        // Clean up pending-restart listener
+        this.cleanupPendingRestartListener(sessionDbId);
+
         this.workerService.broadcastProcessingStatus();
 
         // Crash recovery: If not aborted and still has work, restart
@@ -262,6 +293,144 @@ export class SessionRoutes extends BaseRouteHandler {
         // The generator waits for events, so if it exited, it's either aborted or crashed.
         // Idle sessions stay in memory (ActiveSession is small) to listen for future events.
       });
+  }
+
+  /**
+   * Set up listener for pending-restart events (settings hot-reload)
+   */
+  private setupPendingRestartListener(sessionDbId: number): void {
+    // Clean up any existing listener first
+    this.cleanupPendingRestartListener(sessionDbId);
+
+    const session = this.sessionManager.getSession(sessionDbId);
+    if (!session) return;
+
+    // Get the session's event emitter (same one used by queue processor)
+    const emitter = this.sessionManager.getSessionQueueEmitter(sessionDbId);
+    if (!emitter) return;
+
+    const listener = (sid: number, reason: string) => {
+      if (sid === sessionDbId) {
+        // CRITICAL: Use .catch() to prevent unhandled promise rejection
+        this.tryRestartGeneratorAsync(sessionDbId, reason).catch(error => {
+          logger.error('SESSION', `Hot-reload restart failed`, {
+            sessionId: sessionDbId,
+            reason,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        });
+      }
+    };
+
+    emitter.on('pending-restart', listener);
+    this.pendingRestartListeners.set(sessionDbId, listener);
+  }
+
+  /**
+   * Clean up pending-restart listener
+   */
+  private cleanupPendingRestartListener(sessionDbId: number): void {
+    const listener = this.pendingRestartListeners.get(sessionDbId);
+    if (!listener) return;
+
+    const emitter = this.sessionManager.getSessionQueueEmitter(sessionDbId);
+    if (emitter) {
+      emitter.off('pending-restart', listener);
+    }
+    this.pendingRestartListeners.delete(sessionDbId);
+  }
+
+  /**
+   * Attempt to restart generator for settings hot-reload
+   * Uses async flow: check safety → abort → await settle → start new
+   * Includes mutex to prevent concurrent restart attempts.
+   *
+   * @returns Promise<boolean> - true if restart was initiated
+   */
+  private async tryRestartGeneratorAsync(sessionDbId: number, reason: string): Promise<boolean> {
+    // MUTEX: Prevent concurrent restart attempts for same session
+    if (this.restartInProgress.has(sessionDbId)) {
+      logger.debug('SESSION', `Hot-reload restart skipped - already in progress`, {
+        sessionId: sessionDbId,
+        reason
+      });
+      return false;
+    }
+
+    const session = this.sessionManager.getSession(sessionDbId);
+    if (!session) return false;
+
+    // Check if safe to restart
+    if (!this.sessionManager.isGeneratorSafeToRestart(sessionDbId)) {
+      logger.debug('SESSION', `Hot-reload restart deferred - not safe`, {
+        sessionId: sessionDbId,
+        reason,
+        generatorIdle: session.generatorIdle,
+        inFlightCount: session.inFlightCount
+      });
+      return false;
+    }
+
+    // Acquire mutex
+    this.restartInProgress.add(sessionDbId);
+
+    try {
+      const oldGeneratorId = session.currentGeneratorId;
+      const oldProvider = session.currentProvider;
+
+      logger.info('SESSION', `Generator HOT-RELOAD RESTARTING | reason=${reason}`, {
+        sessionId: sessionDbId,
+        oldGeneratorId,
+        oldProvider,
+        newProvider: this.getSelectedProvider()
+      });
+
+      // Step 1: Abort current generator
+      const oldController = session.abortController;
+      session.abortController = new AbortController();
+      oldController.abort();
+
+      // Step 2: Wait for old generator to settle (with timeout)
+      if (session.generatorPromise) {
+        try {
+          await Promise.race([
+            session.generatorPromise,
+            new Promise(resolve => setTimeout(resolve, 5000)) // 5s timeout
+          ]);
+        } catch {
+          // Ignore errors, we just want it to settle
+        }
+      }
+
+      // Step 3: Double-check session still exists and no new generator started
+      const currentSession = this.sessionManager.getSession(sessionDbId);
+      if (!currentSession) {
+        logger.warn('SESSION', `Hot-reload restart aborted - session no longer exists`, {
+          sessionId: sessionDbId,
+          reason
+        });
+        return false;
+      }
+
+      if (currentSession.generatorPromise) {
+        logger.warn('SESSION', `Hot-reload restart aborted - new generator already started`, {
+          sessionId: sessionDbId,
+          reason
+        });
+        return false;
+      }
+
+      // Step 4: Start new generator with updated settings
+      this.startGeneratorWithProvider(currentSession, this.getSelectedProvider(), `hot-reload:${reason}`);
+
+      // ONLY clear pendingRestart AFTER successful start
+      currentSession.pendingRestart = null;
+
+      return true;
+    } finally {
+      // Release mutex
+      this.restartInProgress.delete(sessionDbId);
+    }
   }
 
   setupRoutes(app: express.Application): void {

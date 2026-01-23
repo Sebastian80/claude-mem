@@ -432,6 +432,8 @@ export class SessionManager {
    * CRITICAL: Uses PendingMessageStore for crash-safe message persistence.
    * Messages are marked as 'processing' when yielded and must be marked 'processed'
    * by the SDK agent after successful completion.
+   *
+   * Tracks idle/busy state via queue processor events for settings hot-reload.
    */
   async *getMessageIterator(sessionDbId: number): AsyncIterableIterator<PendingMessageWithId> {
     // Auto-initialize from database if needed (handles worker restarts)
@@ -445,19 +447,39 @@ export class SessionManager {
       throw new Error(`No emitter for session ${sessionDbId}`);
     }
 
+    // Set up idle/busy event listeners for settings hot-reload
+    const onIdle = (sid: number) => {
+      if (sid === sessionDbId) {
+        this.handleGeneratorIdle(sessionDbId);
+      }
+    };
+    const onBusy = (sid: number, units: number) => {
+      if (sid === sessionDbId) {
+        this.handleGeneratorBusy(sessionDbId, units);
+      }
+    };
+    emitter.on('idle', onIdle);
+    emitter.on('busy', onBusy);
+
     const processor = new SessionQueueProcessor(this.getPendingStore(), emitter);
 
-    // Use the robust iterator - messages are deleted on claim (no tracking needed)
-    for await (const message of processor.createIterator(sessionDbId, session.abortController.signal)) {
-      // Track earliest timestamp for accurate observation timestamps
-      // This ensures backlog messages get their original timestamps, not current time
-      if (session.earliestPendingTimestamp === null) {
-        session.earliestPendingTimestamp = message._originalTimestamp;
-      } else {
-        session.earliestPendingTimestamp = Math.min(session.earliestPendingTimestamp, message._originalTimestamp);
-      }
+    try {
+      // Use the robust iterator - messages are deleted on claim (no tracking needed)
+      for await (const message of processor.createIterator(sessionDbId, session.abortController.signal)) {
+        // Track earliest timestamp for accurate observation timestamps
+        // This ensures backlog messages get their original timestamps, not current time
+        if (session.earliestPendingTimestamp === null) {
+          session.earliestPendingTimestamp = message._originalTimestamp;
+        } else {
+          session.earliestPendingTimestamp = Math.min(session.earliestPendingTimestamp, message._originalTimestamp);
+        }
 
-      yield message;
+        yield message;
+      }
+    } finally {
+      // Clean up event listeners
+      emitter.off('idle', onIdle);
+      emitter.off('busy', onBusy);
     }
   }
 
@@ -465,6 +487,8 @@ export class SessionManager {
    * Get BATCH iterator for SDKAgent to consume (event-driven, batched processing)
    * Yields arrays of messages after each flush signal.
    * Enables batch prompt construction for cost reduction.
+   *
+   * Tracks idle/busy state via queue processor events for settings hot-reload.
    */
   async *getBatchIterator(sessionDbId: number): AsyncIterableIterator<PendingMessageWithId[]> {
     // Auto-initialize from database if needed (handles worker restarts)
@@ -478,20 +502,40 @@ export class SessionManager {
       throw new Error(`No emitter for session ${sessionDbId}`);
     }
 
+    // Set up idle/busy event listeners for settings hot-reload
+    const onIdle = (sid: number) => {
+      if (sid === sessionDbId) {
+        this.handleGeneratorIdle(sessionDbId);
+      }
+    };
+    const onBusy = (sid: number, units: number) => {
+      if (sid === sessionDbId) {
+        this.handleGeneratorBusy(sessionDbId, units);
+      }
+    };
+    emitter.on('idle', onIdle);
+    emitter.on('busy', onBusy);
+
     const processor = new SessionQueueProcessor(this.getPendingStore(), emitter);
 
-    // Use batch iterator - yields arrays of messages after flush
-    for await (const batch of processor.createBatchIterator(sessionDbId, session.abortController.signal)) {
-      // Track earliest timestamp from batch for accurate observation timestamps
-      for (const message of batch) {
-        if (session.earliestPendingTimestamp === null) {
-          session.earliestPendingTimestamp = message._originalTimestamp;
-        } else {
-          session.earliestPendingTimestamp = Math.min(session.earliestPendingTimestamp, message._originalTimestamp);
+    try {
+      // Use batch iterator - yields arrays of messages after flush
+      for await (const batch of processor.createBatchIterator(sessionDbId, session.abortController.signal)) {
+        // Track earliest timestamp from batch for accurate observation timestamps
+        for (const message of batch) {
+          if (session.earliestPendingTimestamp === null) {
+            session.earliestPendingTimestamp = message._originalTimestamp;
+          } else {
+            session.earliestPendingTimestamp = Math.min(session.earliestPendingTimestamp, message._originalTimestamp);
+          }
         }
-      }
 
-      yield batch;
+        yield batch;
+      }
+    } finally {
+      // Clean up event listeners
+      emitter.off('idle', onIdle);
+      emitter.off('busy', onBusy);
     }
   }
 
@@ -500,5 +544,218 @@ export class SessionManager {
    */
   getPendingMessageStore(): PendingMessageStore {
     return this.getPendingStore();
+  }
+
+  /**
+   * Get the session queue emitter (for settings hot-reload event handling)
+   */
+  getSessionQueueEmitter(sessionDbId: number): EventEmitter | undefined {
+    return this.sessionQueues.get(sessionDbId);
+  }
+
+  // =====================================================
+  // SETTINGS HOT-RELOAD: Generator Restart Scheduling
+  // =====================================================
+
+  /**
+   * Handle generator becoming idle (queue empty, waiting for messages)
+   * Updates session state and checks for pending restart
+   */
+  private handleGeneratorIdle(sessionDbId: number): void {
+    const session = this.sessions.get(sessionDbId);
+    if (!session) return;
+
+    session.generatorIdle = true;
+    session.idleSince = Date.now();
+
+    logger.debug('SETTINGS', `Generator idle`, {
+      sessionId: sessionDbId,
+      hasPendingRestart: !!session.pendingRestart
+    });
+
+    // Check if there's a pending restart request
+    if (session.pendingRestart) {
+      logger.info('SETTINGS', `Generator idle with pending restart`, {
+        sessionId: sessionDbId,
+        reason: session.pendingRestart.reason,
+        waitedMs: Date.now() - session.pendingRestart.requestedAt
+      });
+      // Emit event for SessionRoutes to handle the restart
+      const emitter = this.sessionQueues.get(sessionDbId);
+      emitter?.emit('pending-restart', sessionDbId, session.pendingRestart.reason);
+    }
+  }
+
+  /**
+   * Handle generator becoming busy (processing a message or batch)
+   * Updates session state
+   *
+   * @param sessionDbId - Session ID
+   * @param units - Number of expected prompts/responses (1 for single, calculated for batch)
+   *
+   * NOTE: In batch mode, units = (obsCount > 0 ? 1 : 0) + summarizeCount
+   * This tracks expected assistant responses, not individual messages.
+   * Each processAgentResponse() call decrements by 1.
+   */
+  private handleGeneratorBusy(sessionDbId: number, units: number = 1): void {
+    const session = this.sessions.get(sessionDbId);
+    if (!session) return;
+
+    session.generatorIdle = false;
+    session.idleSince = null;
+    // Increment in-flight count by the number of expected prompts
+    session.inFlightCount = (session.inFlightCount || 0) + units;
+
+    logger.debug('SETTINGS', `Generator busy`, {
+      sessionId: sessionDbId,
+      units,
+      inFlightCount: session.inFlightCount
+    });
+  }
+
+  /**
+   * Decrement in-flight count after a message/batch is fully processed
+   * Called by agents after processing each response
+   *
+   * CRITICAL: Also checks if restart is now safe and re-emits pending-restart
+   * This handles the case where inFlightCount drops to 0 while already idle
+   */
+  decrementInFlight(sessionDbId: number): void {
+    const session = this.sessions.get(sessionDbId);
+    if (!session) return;
+
+    session.inFlightCount = Math.max(0, (session.inFlightCount || 0) - 1);
+
+    logger.debug('SETTINGS', `In-flight decremented`, {
+      sessionId: sessionDbId,
+      inFlightCount: session.inFlightCount,
+      generatorIdle: session.generatorIdle,
+      hasPendingRestart: !!session.pendingRestart
+    });
+
+    // CRITICAL: Re-check for pending restart when inFlightCount drops to 0
+    // This handles the prefetch case where we became idle but had in-flight work
+    if (session.inFlightCount === 0 && session.generatorIdle && session.pendingRestart) {
+      logger.info('SETTINGS', `In-flight cleared, re-triggering pending restart`, {
+        sessionId: sessionDbId,
+        reason: session.pendingRestart.reason,
+        waitedMs: Date.now() - session.pendingRestart.requestedAt
+      });
+      const emitter = this.sessionQueues.get(sessionDbId);
+      emitter?.emit('pending-restart', sessionDbId, session.pendingRestart.reason);
+    }
+  }
+
+  /**
+   * Check if generator is safe to restart (idle + queue empty + no in-flight)
+   */
+  isGeneratorSafeToRestart(sessionDbId: number): boolean {
+    const session = this.sessions.get(sessionDbId);
+    if (!session) return false;
+
+    const pendingCount = this.getPendingStore().getPendingCount(sessionDbId);
+    const inFlightCount = session.inFlightCount || 0;
+
+    // Safe if: generator exists, is idle, queue is empty, AND no in-flight work
+    const isSafe = session.generatorPromise !== null
+      && session.generatorIdle === true
+      && inFlightCount === 0
+      && pendingCount === 0;
+
+    logger.debug('SETTINGS', `isGeneratorSafeToRestart check`, {
+      sessionId: sessionDbId,
+      hasGenerator: !!session.generatorPromise,
+      generatorIdle: session.generatorIdle,
+      inFlightCount,
+      pendingCount,
+      isSafe
+    });
+
+    return isSafe;
+  }
+
+  /**
+   * Schedule generator restarts for all active sessions when settings change.
+   * Only marks sessions that have a running generator (others will start with new settings anyway).
+   * For sessions that are already idle and safe to restart, immediately emits 'pending-restart'.
+   *
+   * @param reason - Description of what changed (e.g., "CLAUDE_MEM_PROVIDER")
+   */
+  scheduleRestartsForSettingsChange(reason: string): void {
+    const sessionIds = Array.from(this.sessions.keys());
+
+    if (sessionIds.length === 0) {
+      logger.debug('SETTINGS', 'No active sessions to restart');
+      return;
+    }
+
+    let markedCount = 0;
+    let immediateCount = 0;
+
+    for (const sessionDbId of sessionIds) {
+      const session = this.sessions.get(sessionDbId);
+      if (!session) continue;
+
+      // Only mark sessions with running generators
+      // Sessions without generators will start with new settings anyway
+      if (!session.generatorPromise) {
+        logger.debug('SETTINGS', `Skipping session without generator`, {
+          sessionId: sessionDbId
+        });
+        continue;
+      }
+
+      // Mark session for restart
+      session.pendingRestart = {
+        reason,
+        requestedAt: Date.now()
+      };
+      markedCount++;
+
+      // CRITICAL: If session is already safe to restart, trigger immediately
+      // This handles the case where generator is already idle when settings change
+      if (this.isGeneratorSafeToRestart(sessionDbId)) {
+        logger.info('SETTINGS', `Session already safe - triggering immediate restart`, {
+          sessionId: sessionDbId,
+          reason
+        });
+        const emitter = this.sessionQueues.get(sessionDbId);
+        emitter?.emit('pending-restart', sessionDbId, reason);
+        immediateCount++;
+      } else {
+        logger.debug('SETTINGS', `Marked session for restart (will trigger when idle)`, {
+          sessionId: sessionDbId,
+          reason,
+          currentProvider: session.currentProvider
+        });
+      }
+    }
+
+    if (markedCount > 0) {
+      logger.info('SETTINGS', `Scheduled restarts for ${markedCount} session(s)`, {
+        reason,
+        totalSessions: sessionIds.length,
+        markedForRestart: markedCount,
+        immediateRestarts: immediateCount
+      });
+    } else {
+      logger.debug('SETTINGS', 'No sessions with running generators to restart', {
+        reason,
+        totalSessions: sessionIds.length
+      });
+    }
+  }
+
+  /**
+   * Get all sessions that have pending restarts
+   */
+  getSessionsWithPendingRestart(): number[] {
+    const result: number[] = [];
+    for (const [sessionDbId, session] of this.sessions) {
+      if (session.pendingRestart) {
+        result.push(sessionDbId);
+      }
+    }
+    return result;
   }
 }

@@ -125,6 +125,10 @@ export async function processAgentResponse(
 
   // Clean up session state
   cleanupProcessedMessages(session, worker);
+
+  // CRITICAL: Decrement in-flight count after processing is complete
+  // This enables settings hot-reload to detect when it's safe to restart
+  sessionManager.decrementInFlight(session.sessionDbId);
 }
 
 /**
