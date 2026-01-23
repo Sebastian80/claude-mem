@@ -3,19 +3,15 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.5-jv.11`
-**Upstream Base**: `v9.0.5` (commit `3d40b45f`)
-**Last Merge**: 2026-01-14
+**Current Fork Version**: `9.0.6-jv.1`
+**Upstream Base**: `v9.0.6` (commit `c29d91a9`)
+**Last Merge**: 2026-01-23
 **Recent Updates**:
-- `9.0.5-jv.2`: Custom API Endpoints feature
-- `9.0.5-jv.3`: Fixed hardcoded marketplace paths in worker-cli.js and TypeScript files
-- `9.0.5-jv.4`: Fixed smart-install.js to use worker-cli.js instead of worker-service.cjs
-- `9.0.5-jv.6`: Fixed smart-install.js to update existing aliases on plugin upgrade
-- `9.0.5-jv.7`: Fixed useSettings.ts missing base URL fields (CLAUDE_MEM_GEMINI_BASE_URL, CLAUDE_MEM_OPENROUTER_BASE_URL)
-- `9.0.5-jv.8`: Fixed folder CLAUDE.md generation - disabled by default, no empty files created
-- `9.0.5-jv.9`: Fixed Gemini/OpenRouter memorySessionId bug - generate UUID for non-Claude providers
-- `9.0.5-jv.10`: Dynamic Model Selection - URL normalization, dynamic model fetching, OpenRouter→OpenAI rename
+- `9.0.6-jv.1`: Merged upstream v9.0.6 (Windows console popup fixes, Chroma disabled on Windows)
 - `9.0.5-jv.11`: Settings Hot-Reload - apply provider/model changes without worker restart
+- `9.0.5-jv.10`: Dynamic Model Selection - URL normalization, dynamic model fetching, OpenRouter→OpenAI rename
+- `9.0.5-jv.9`: Fixed Gemini/OpenRouter memorySessionId bug - generate UUID for non-Claude providers
+- `9.0.5-jv.8`: Fixed folder CLAUDE.md generation - disabled by default, no empty files created
 
 ---
 

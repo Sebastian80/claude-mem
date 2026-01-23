@@ -18,6 +18,7 @@ This fork addresses specific stability and usability issues encountered in our e
 |-------|-------------|
 | **Zombie Process Cleanup** | SDK child processes were not properly terminated when sessions ended, accumulating over time. Added explicit `SIGTERM` cleanup using process detection. |
 | **Dynamic Path Resolution** | Replaced hardcoded marketplace paths with dynamic resolution to prevent crashes on different installations. |
+| **Gemini/OpenAI memorySessionId** | Non-Claude providers crashed without a session ID. Now generates UUID automatically for Gemini and OpenAI-compatible providers. |
 
 ### Usability Improvements
 
@@ -25,61 +26,23 @@ This fork addresses specific stability and usability issues encountered in our e
 |-------|-------------|
 | **MCP Empty Search** | Empty search queries now return recent results instead of throwing errors. Useful for browsing recent activity. |
 | **MCP Schema Enhancement** | Added explicit property definitions to MCP tool schemas so parameters are visible to Claude. |
+| **Custom API Endpoints** | Configure custom base URLs for Gemini and OpenAI-compatible providers (proxies, self-hosted, regional endpoints). |
+| **Dynamic Model Selection** | Fetch available models from your configured API endpoint. UI shows dropdown of available models. |
+| **Settings Hot-Reload** | Change provider/model settings without restarting the worker. Settings apply automatically when the generator becomes idle. |
+| **Folder CLAUDE.md Optimization** | Disabled by default. When enabled, only creates files for folders with actual observations (no empty placeholders). |
 
-### Optional Features
+### Optional Features (On Hold)
 
 | Patch | Description |
 |-------|-------------|
-| **Observation Batching** | Batch multiple observations into single API calls for cost reduction. Disabled by default. See [configuration](#observation-batching-configuration) below. |
-| **Autonomous Execution Prevention** | Detect and skip compaction/warmup prompts that might trigger unintended behavior. Experimental. |
+| **Observation Batching** | Batch multiple observations into single API calls for cost reduction. Disabled by default. |
+| **Autonomous Execution Prevention** | Detect and skip compaction/warmup prompts that might trigger unintended behavior. |
 
 ---
 
-## Observation Batching Configuration
+## OpenAI-Compatible Provider
 
-### How It Works
-
-Claude-mem uses a separate "SDK agent" (another Claude session) to compress your tool usage into semantic observations. By default, each tool triggers an immediate API call. **Batching** collects multiple tool observations and processes them in a single API call at turn end.
-
-```
-Without Batching:              With Batching:
-Tool 1 → API call #1           Tool 1 → queued
-Tool 2 → API call #2           Tool 2 → queued
-Tool 3 → API call #3           Tool 3 → queued
-Summary → API call #4          Turn end → API call #1 (all 3)
-                                        → API call #2 (summary)
-= 4 API calls                  = 2 API calls
-```
-
-### Configuration
-
-Enable batching in `~/.claude-mem/settings.json`:
-
-```json
-{
-  "CLAUDE_MEM_BATCHING_ENABLED": "true",
-  "CLAUDE_MEM_BATCH_MAX_SIZE": "20"
-}
-```
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `CLAUDE_MEM_BATCHING_ENABLED` | `"false"` | Enable observation batching. Reduces API calls by processing multiple observations together. |
-| `CLAUDE_MEM_BATCH_MAX_SIZE` | `"20"` | Overflow protection. If a turn has more tools than this, flush early. Set high (50-100) for best savings. |
-
-### When Batches Flush
-
-- **Turn end** - Normal: all queued observations processed together
-- **Overflow** - Queue reaches MAX_SIZE → immediate flush
-- **Next turn** - Any leftovers from previous turn
-
-For detailed architecture, see [docs/architecture/2026-01-10-BATCHING-AND-SDK-THEORY.md](docs/architecture/2026-01-10-BATCHING-AND-SDK-THEORY.md).
-
----
-
-## OpenAI-Compatible Provider (v9.0.6+)
-
-Starting with v9.0.6, the "OpenRouter" provider has been renamed to "OpenAI Compatible" to better reflect its capabilities. This provider supports any OpenAI-compatible API endpoint, including:
+The "OpenRouter" provider has been renamed to "OpenAI Compatible" to better reflect its capabilities. This provider supports any OpenAI-compatible API endpoint, including:
 
 - **OpenRouter** (default) - Access to many models
 - **Local LLMs** - Ollama, LM Studio, vLLM, etc.
@@ -89,18 +52,31 @@ Starting with v9.0.6, the "OpenRouter" provider has been renamed to "OpenAI Comp
 
 Settings are automatically migrated on first run. The following keys have been renamed:
 
-| Old Key (v9.0.5) | New Key (v9.0.6+) |
-|------------------|-------------------|
+| Old Key | New Key |
+|---------|---------|
 | `CLAUDE_MEM_OPENROUTER_API_KEY` | `CLAUDE_MEM_OPENAI_API_KEY` |
 | `CLAUDE_MEM_OPENROUTER_MODEL` | `CLAUDE_MEM_OPENAI_MODEL` |
 | `CLAUDE_MEM_OPENROUTER_BASE_URL` | `CLAUDE_MEM_OPENAI_BASE_URL` |
-| `CLAUDE_MEM_OPENROUTER_SITE_URL` | `CLAUDE_MEM_OPENAI_SITE_URL` |
-| `CLAUDE_MEM_OPENROUTER_APP_NAME` | `CLAUDE_MEM_OPENAI_APP_NAME` |
-| `CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES` | `CLAUDE_MEM_OPENAI_MAX_CONTEXT_MESSAGES` |
-| `CLAUDE_MEM_OPENROUTER_MAX_TOKENS` | `CLAUDE_MEM_OPENAI_MAX_TOKENS` |
 | `CLAUDE_MEM_PROVIDER=openrouter` | `CLAUDE_MEM_PROVIDER=openai` |
 
-**Note:** The old `OPENROUTER_API_KEY` environment variable is still supported as a fallback.
+---
+
+## Custom API Endpoints
+
+Configure custom base URLs in `~/.claude-mem/settings.json`:
+
+```json
+{
+  "CLAUDE_MEM_GEMINI_BASE_URL": "https://my-proxy.com/v1beta/models",
+  "CLAUDE_MEM_OPENAI_BASE_URL": "https://my-gateway.com/v1/chat/completions"
+}
+```
+
+Or via environment variables:
+```bash
+export GEMINI_BASE_URL="https://my-proxy.com/v1beta/models"
+export OPENAI_BASE_URL="https://my-gateway.com/v1/chat/completions"
+```
 
 ---
 
@@ -117,7 +93,7 @@ Settings are automatically migrated on first run. The following keys have been r
 ## Version Format
 
 Fork versions follow the format `{upstream}-jv.{patch}`:
-- `9.0.5-jv.1` = Based on upstream v9.0.5, fork patch version 1
+- `9.0.6-jv.1` = Based on upstream v9.0.6, fork patch version 1
 
 ---
 
@@ -131,4 +107,20 @@ Thanks to [Alex Newman (@thedotmack)](https://github.com/thedotmack) for creatin
 
 Same as upstream: **GNU Affero General Public License v3.0** (AGPL-3.0)
 
-See the [LICENSE](LICENSE) file for details.
+Copyright (C) 2025 Alex Newman (@thedotmack). All rights reserved.
+
+See the [LICENSE](LICENSE) file for full details.
+
+---
+
+## Support
+
+- **Fork Issues**: [GitHub Issues](https://github.com/JillVernus/claude-mem/issues)
+- **Upstream Documentation**: [docs.claude-mem.ai](https://docs.claude-mem.ai)
+- **Upstream Issues**: [GitHub Issues](https://github.com/thedotmack/claude-mem/issues)
+- **Official X Account**: [@Claude_Memory](https://x.com/Claude_Memory)
+- **Official Discord**: [Join Discord](https://discord.com/invite/J4wttp9vDu)
+
+---
+
+**Built with Claude Agent SDK** | **Powered by Claude Code** | **Made with TypeScript**
