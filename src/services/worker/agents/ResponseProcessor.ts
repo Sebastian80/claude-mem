@@ -17,6 +17,7 @@ import { updateCursorContextForProject } from '../../integrations/CursorHooksIns
 import { updateFolderClaudeMdFiles } from '../../../utils/claude-md-utils.js';
 import { getWorkerPort } from '../../../shared/worker-utils.js';
 import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
+import { storeObservationsAndMarkComplete } from '../../sqlite/transactions.js';
 import type { ActiveSession } from '../../worker-types.js';
 import type { DatabaseManager } from '../DatabaseManager.js';
 import type { SessionManager } from '../SessionManager.js';
@@ -43,6 +44,8 @@ import { cleanupProcessedMessages } from './SessionCleanupHelper.js';
  * @param discoveryTokens - Token cost delta for this response
  * @param originalTimestamp - Original epoch when message was queued (for accurate timestamps)
  * @param agentName - Name of the agent for logging (e.g., 'SDK', 'Gemini', 'OpenRouter')
+ * @param projectRoot - Optional project root for CLAUDE.md generation
+ * @param messageId - Optional pending message ID for atomic store+mark-complete (immediate mode)
  */
 export async function processAgentResponse(
   text: string,
@@ -53,7 +56,8 @@ export async function processAgentResponse(
   discoveryTokens: number,
   originalTimestamp: number | null,
   agentName: string,
-  projectRoot?: string
+  projectRoot?: string,
+  messageId?: number
 ): Promise<void> {
   // Add assistant response to shared conversation history for provider interop
   if (text) {
@@ -76,28 +80,60 @@ export async function processAgentResponse(
   }
 
   // Log pre-storage with session ID chain for verification
-  logger.info('DB', `STORING | sessionDbId=${session.sessionDbId} | memorySessionId=${session.memorySessionId} | obsCount=${observations.length} | hasSummary=${!!summaryForStore}`, {
+  logger.info('DB', `STORING | sessionDbId=${session.sessionDbId} | memorySessionId=${session.memorySessionId} | obsCount=${observations.length} | hasSummary=${!!summaryForStore} | messageId=${messageId || 'none'}`, {
     sessionId: session.sessionDbId,
     memorySessionId: session.memorySessionId
   });
 
-  // ATOMIC TRANSACTION: Store observations + summary ONCE
-  // Messages are already deleted from queue on claim, so no completion tracking needed
-  const result = sessionStore.storeObservations(
-    session.memorySessionId,
-    session.project,
-    observations,
-    summaryForStore,
-    session.lastPromptNumber,
-    discoveryTokens,
-    originalTimestamp ?? undefined
-  );
+  let result: StorageResult;
 
-  // Log storage result with IDs for end-to-end traceability
-  logger.info('DB', `STORED | sessionDbId=${session.sessionDbId} | memorySessionId=${session.memorySessionId} | obsCount=${result.observationIds.length} | obsIds=[${result.observationIds.join(',')}] | summaryId=${result.summaryId || 'none'}`, {
-    sessionId: session.sessionDbId,
-    memorySessionId: session.memorySessionId
-  });
+  // Use atomic transaction when messageId is provided (immediate mode)
+  // This ensures observations are stored AND message is marked complete atomically
+  if (messageId !== undefined && (observations.length > 0 || summaryForStore)) {
+    // ATOMIC: Store observations + summary + mark message processed
+    result = storeObservationsAndMarkComplete(
+      sessionStore.db,
+      session.memorySessionId,
+      session.project,
+      observations,
+      summaryForStore,
+      messageId,
+      session.lastPromptNumber,
+      discoveryTokens,
+      originalTimestamp ?? undefined
+    );
+
+    logger.info('DB', `ATOMIC_STORED | sessionDbId=${session.sessionDbId} | memorySessionId=${session.memorySessionId} | obsCount=${result.observationIds.length} | messageId=${messageId} | summaryId=${result.summaryId || 'none'}`, {
+      sessionId: session.sessionDbId,
+      memorySessionId: session.memorySessionId
+    });
+  } else {
+    // Regular store (init/continuation prompt, batch mode, or no content)
+    result = sessionStore.storeObservations(
+      session.memorySessionId,
+      session.project,
+      observations,
+      summaryForStore,
+      session.lastPromptNumber,
+      discoveryTokens,
+      originalTimestamp ?? undefined
+    );
+
+    // If we have a messageId but no observations/summary, still mark as processed
+    if (messageId !== undefined) {
+      const pendingStore = sessionManager.getPendingMessageStore();
+      pendingStore.markProcessed(messageId);
+      logger.debug('DB', `MARK_PROCESSED_ONLY | messageId=${messageId} | reason=no_observations`, {
+        sessionId: session.sessionDbId
+      });
+    }
+
+    // Log storage result with IDs for end-to-end traceability
+    logger.info('DB', `STORED | sessionDbId=${session.sessionDbId} | memorySessionId=${session.memorySessionId} | obsCount=${result.observationIds.length} | obsIds=[${result.observationIds.join(',')}] | summaryId=${result.summaryId || 'none'}`, {
+      sessionId: session.sessionDbId,
+      memorySessionId: session.memorySessionId
+    });
+  }
 
   // AFTER transaction commits - async operations (can fail safely without data loss)
   await syncAndBroadcastObservations(

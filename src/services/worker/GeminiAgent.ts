@@ -141,6 +141,9 @@ export class GeminiAgent {
    */
   async startSession(session: ActiveSession, worker?: WorkerRef): Promise<void> {
     try {
+      // Initialize FIFO queue for tracking message IDs (handles prefetch)
+      session.processingMessageIdQueue = [];
+
       // Get Gemini configuration
       const { apiKey, model, rateLimitingEnabled, truncationConfig } = this.getGeminiConfig();
 
@@ -267,6 +270,7 @@ export class GeminiAgent {
           }
 
           // Process response using shared ResponseProcessor
+          // Pass messageId for atomic store+mark-complete
           await processAgentResponse(
             obsResponse.content || '',
             session,
@@ -276,7 +280,8 @@ export class GeminiAgent {
             tokensUsed,
             originalTimestamp,
             'Gemini',
-            lastCwd
+            lastCwd,
+            message._persistentId
           );
 
         } else if (message.type === 'summarize') {
@@ -318,6 +323,7 @@ export class GeminiAgent {
           }
 
           // Process response using shared ResponseProcessor
+          // Pass messageId for atomic store+mark-complete
           await processAgentResponse(
             summaryResponse.content || '',
             session,
@@ -327,7 +333,8 @@ export class GeminiAgent {
             tokensUsed,
             originalTimestamp,
             'Gemini',
-            lastCwd
+            lastCwd,
+            message._persistentId
           );
         }
       }

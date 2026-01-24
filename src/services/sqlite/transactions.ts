@@ -121,6 +121,8 @@ export function storeObservationsAndMarkComplete(
     // 3. Mark pending message as processed
     // This UPDATE is part of the same transaction, so if it fails,
     // observations and summary will be rolled back
+    // CRITICAL: Use current time for completion (not override timestamp)
+    const completionEpoch = Date.now();
     const updateStmt = db.prepare(`
       UPDATE pending_messages
       SET
@@ -130,7 +132,13 @@ export function storeObservationsAndMarkComplete(
         tool_response = NULL
       WHERE id = ? AND status = 'processing'
     `);
-    updateStmt.run(timestampEpoch, messageId);
+    const updateResult = updateStmt.run(completionEpoch, messageId);
+
+    // CRITICAL: Verify the UPDATE actually happened
+    // If messageId is wrong or status wasn't 'processing', rollback everything
+    if (updateResult.changes === 0) {
+      throw new Error(`Failed to mark message ${messageId} as processed - status may not be 'processing' or messageId is invalid`);
+    }
 
     return { observationIds, summaryId, createdAtEpoch: timestampEpoch };
   });

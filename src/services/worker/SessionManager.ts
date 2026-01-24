@@ -439,6 +439,7 @@ export class SessionManager {
    * by the SDK agent after successful completion.
    *
    * Tracks idle/busy state via queue processor events for settings hot-reload.
+   * Uses shouldStop callback to enable clean generator restart without message loss.
    */
   async *getMessageIterator(sessionDbId: number): AsyncIterableIterator<PendingMessageWithId> {
     // Auto-initialize from database if needed (handles worker restarts)
@@ -468,9 +469,13 @@ export class SessionManager {
 
     const processor = new SessionQueueProcessor(this.getPendingStore(), emitter);
 
+    // Stop condition: check if pendingRestart is set
+    // This allows clean stop BEFORE claiming next message (no message loss)
+    const shouldStop = () => !!session?.pendingRestart;
+
     try {
-      // Use the robust iterator - messages are deleted on claim (no tracking needed)
-      for await (const message of processor.createIterator(sessionDbId, session.abortController.signal)) {
+      // Use safe iterator - messages stay in DB with status='processing' until marked complete
+      for await (const message of processor.createIterator(sessionDbId, session.abortController.signal, shouldStop)) {
         // Track earliest timestamp for accurate observation timestamps
         // This ensures backlog messages get their original timestamps, not current time
         if (session.earliestPendingTimestamp === null) {
@@ -652,27 +657,26 @@ export class SessionManager {
   }
 
   /**
-   * Check if generator is safe to restart (idle + queue empty + no in-flight)
+   * Check if generator is safe to restart (idle + no in-flight work)
+   * Note: pendingCount is NOT required to be 0 - processing messages will be reset on restart
    */
   isGeneratorSafeToRestart(sessionDbId: number): boolean {
     const session = this.sessions.get(sessionDbId);
     if (!session) return false;
 
-    const pendingCount = this.getPendingStore().getPendingCount(sessionDbId);
     const inFlightCount = session.inFlightCount || 0;
 
-    // Safe if: generator exists, is idle, queue is empty, AND no in-flight work
+    // Safe if: generator exists, is idle, AND no in-flight work
+    // Don't require queue empty - processing messages will be reset on restart
     const isSafe = session.generatorPromise !== null
       && session.generatorIdle === true
-      && inFlightCount === 0
-      && pendingCount === 0;
+      && inFlightCount === 0;
 
     logger.debug('SETTINGS', `isGeneratorSafeToRestart check`, {
       sessionId: sessionDbId,
       hasGenerator: !!session.generatorPromise,
       generatorIdle: session.generatorIdle,
       inFlightCount,
-      pendingCount,
       isSafe
     });
 

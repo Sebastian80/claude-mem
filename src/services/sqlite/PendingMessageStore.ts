@@ -77,6 +77,7 @@ export class PendingMessageStore {
   }
 
   /**
+   * @deprecated Use claim() for immediate mode. Kept for batch mode only.
    * Atomically claim and DELETE the next pending message.
    * Finds oldest pending -> returns it -> deletes from queue.
    * The queue is a pure buffer: claim it, delete it, process in memory.
@@ -98,7 +99,7 @@ export class PendingMessageStore {
         deleteStmt.run(msg.id);
 
         // Log claim with minimal info (avoid logging full payload)
-        logger.info('QUEUE', `CLAIMED | sessionDbId=${sessionId} | messageId=${msg.id} | type=${msg.message_type}`, {
+        logger.info('QUEUE', `CLAIMED_AND_DELETED | sessionDbId=${sessionId} | messageId=${msg.id} | type=${msg.message_type}`, {
           sessionId: sessionId
         });
       }
@@ -106,6 +107,100 @@ export class PendingMessageStore {
     });
 
     return claimTx(sessionDbId) as PersistentPendingMessage | null;
+  }
+
+  /**
+   * Atomically claim the next pending message (safe pattern).
+   * Message stays in DB with status='processing' until explicitly marked complete.
+   * Uses transaction with retry to handle race conditions.
+   *
+   * @returns Claimed message, or null if queue is truly empty
+   */
+  claim(sessionDbId: number): PersistentPendingMessage | null {
+    const now = Date.now();
+    const MAX_RETRIES = 3;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const result = this.db.transaction(() => {
+        // Step 1: Find next pending message
+        const peekStmt = this.db.prepare(`
+          SELECT id FROM pending_messages
+          WHERE session_db_id = ? AND status = 'pending'
+          ORDER BY id ASC
+          LIMIT 1
+        `);
+        const peek = peekStmt.get(sessionDbId) as { id: number } | null;
+
+        if (!peek) return { found: false, msg: null };
+
+        // Step 2: Atomically claim it (verify still pending)
+        const claimStmt = this.db.prepare(`
+          UPDATE pending_messages
+          SET status = 'processing', started_processing_at_epoch = ?
+          WHERE id = ? AND status = 'pending'
+        `);
+        const updateResult = claimStmt.run(now, peek.id);
+
+        // Race: another worker claimed it
+        if (updateResult.changes === 0) {
+          return { found: true, msg: null }; // Found row but couldn't claim - retry
+        }
+
+        // Step 3: Fetch the full message (now ours)
+        const fetchStmt = this.db.prepare(`SELECT * FROM pending_messages WHERE id = ?`);
+        const msg = fetchStmt.get(peek.id) as PersistentPendingMessage;
+
+        return { found: true, msg };
+      })();
+
+      if (!result.found) {
+        // Queue is truly empty
+        return null;
+      }
+
+      if (result.msg) {
+        // Successfully claimed
+        logger.info('QUEUE', `CLAIMED | sessionDbId=${sessionDbId} | messageId=${result.msg.id} | type=${result.msg.message_type}`, {
+          sessionId: sessionDbId
+        });
+        return result.msg;
+      }
+
+      // Race occurred, retry
+      logger.debug('QUEUE', `Claim race, retrying (attempt ${attempt + 1}/${MAX_RETRIES})`, {
+        sessionId: sessionDbId
+      });
+    }
+
+    // Max retries exceeded, treat as empty (will retry on next iteration)
+    logger.warn('QUEUE', `Claim max retries exceeded`, { sessionId: sessionDbId });
+    return null;
+  }
+
+  /**
+   * Mark a message as processed (set status='processed', clear payload).
+   * Called after observation has been stored via storeObservationsAndMarkComplete().
+   *
+   * Note: For immediate mode, prefer using storeObservationsAndMarkComplete() which
+   * handles this atomically. This method is for edge cases where separate marking is needed.
+   */
+  markProcessed(messageId: number): boolean {
+    const now = Date.now();
+    const stmt = this.db.prepare(`
+      UPDATE pending_messages
+      SET status = 'processed',
+          completed_at_epoch = ?,
+          tool_input = NULL,
+          tool_response = NULL
+      WHERE id = ? AND status = 'processing'
+    `);
+    const result = stmt.run(now, messageId);
+
+    if (result.changes > 0) {
+      logger.debug('QUEUE', `PROCESSED | messageId=${messageId}`);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -122,7 +217,7 @@ export class PendingMessageStore {
 
   /**
    * Get all queue messages (for UI display)
-   * Returns pending, processing, and failed messages (not processed - they're deleted)
+   * Returns pending, processing, and failed messages (excludes processed for cleaner view)
    * Joins with sdk_sessions to get project name
    */
   getQueueMessages(): (PersistentPendingMessage & { project: string | null })[] {

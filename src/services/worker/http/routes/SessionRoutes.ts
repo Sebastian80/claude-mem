@@ -450,6 +450,17 @@ export class SessionRoutes extends BaseRouteHandler {
         }
       }
 
+      // Step 2.5: Reset any processing messages back to pending
+      // This ensures no message loss during restart - messages stay in DB as 'processing'
+      // and will be re-claimed by the new generator
+      const resetCount = this.sessionManager.getPendingMessageStore().resetProcessingToPending(sessionDbId);
+      if (resetCount > 0) {
+        logger.info('SESSION', `Reset ${resetCount} processing messages to pending for restart`, {
+          sessionId: sessionDbId,
+          reason
+        });
+      }
+
       // Step 3: Double-check session still exists and no new generator started
       const currentSession = this.sessionManager.getSession(sessionDbId);
       if (!currentSession) {

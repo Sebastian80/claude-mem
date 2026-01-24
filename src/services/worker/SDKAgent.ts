@@ -39,6 +39,9 @@ export class SDKAgent {
    * @param worker WorkerService reference for spinner control (optional)
    */
   async startSession(session: ActiveSession, worker?: WorkerRef): Promise<void> {
+    // Initialize FIFO queue for tracking message IDs (handles SDK prefetch)
+    session.processingMessageIdQueue = [];
+
     // Track cwd from messages for CLAUDE.md generation (worktree support)
     // Uses mutable object so generator updates are visible in response processing
     const cwdTracker = { lastCwd: undefined as string | undefined };
@@ -250,6 +253,10 @@ export class SDKAgent {
         // Capture earliest timestamp BEFORE processing (will be cleared after)
         const originalTimestamp = session.earliestPendingTimestamp;
 
+        // Get the message ID for this response (FIFO order)
+        // Handles SDK prefetch where multiple prompts may be in-flight
+        const messageId = session.processingMessageIdQueue?.shift();
+
         if (responseSize > 0) {
           const truncatedResponse = responseSize > 100
             ? textContent.substring(0, 100) + '...'
@@ -261,6 +268,7 @@ export class SDKAgent {
         }
 
         // Parse and process response using shared ResponseProcessor
+        // Pass messageId for atomic store+mark-complete (undefined for init/continuation)
         await processAgentResponse(
           textContent,
           session,
@@ -270,7 +278,8 @@ export class SDKAgent {
           discoveryTokens,
           originalTimestamp,
           'SDK',
-          cwdTracker.lastCwd
+          cwdTracker.lastCwd,
+          messageId
         );
       }
 
@@ -346,6 +355,10 @@ export class SDKAgent {
 
     // Add to shared conversation history for provider interop
     session.conversationHistory.push({ role: 'user', content: initPrompt });
+
+    // Push undefined sentinel for init/continuation prompt (no messageId)
+    // This ensures FIFO queue stays aligned when processing responses
+    session.processingMessageIdQueue?.push(undefined);
 
     // Yield initial user prompt with context (or continuation if prompt #2+)
     // CRITICAL: Both paths use session.contentSessionId from the hook
@@ -461,6 +474,10 @@ export class SDKAgent {
 
           session.conversationHistory.push({ role: 'user', content: obsPrompt });
 
+          // Push message ID to FIFO BEFORE yielding
+          // This handles SDK prefetch - multiple prompts can be in-flight
+          session.processingMessageIdQueue?.push(message._persistentId);
+
           yield {
             type: 'user',
             message: {
@@ -481,6 +498,9 @@ export class SDKAgent {
           }, mode);
 
           session.conversationHistory.push({ role: 'user', content: summaryPrompt });
+
+          // Push message ID to FIFO BEFORE yielding
+          session.processingMessageIdQueue?.push(message._persistentId);
 
           yield {
             type: 'user',

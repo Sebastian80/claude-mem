@@ -18,18 +18,33 @@ export class SessionQueueProcessor {
 
   /**
    * Create an async iterator that yields messages as they become available.
-   * Uses atomic claim-and-delete to prevent duplicates.
-   * The queue is a pure buffer: claim it, delete it, process in memory.
+   * Uses safe claim pattern - messages stay in DB until explicitly marked processed.
    * Waits for 'message' event when queue is empty.
    *
    * Emits 'idle' when waiting for messages, 'busy' when yielding a message.
+   *
+   * @param sessionDbId - Session ID
+   * @param signal - Abort signal
+   * @param shouldStop - Optional callback to check if iterator should stop early (e.g., for restart)
    */
-  async *createIterator(sessionDbId: number, signal: AbortSignal): AsyncIterableIterator<PendingMessageWithId> {
+  async *createIterator(
+    sessionDbId: number,
+    signal: AbortSignal,
+    shouldStop?: () => boolean
+  ): AsyncIterableIterator<PendingMessageWithId> {
     while (!signal.aborted) {
       try {
-        // Atomically claim AND DELETE next message from DB
-        // Message is now in memory only - no "processing" state tracking needed
-        const persistentMessage = this.store.claimAndDelete(sessionDbId);
+        // CHECK BEFORE CLAIMING - allows clean stop without message loss
+        if (shouldStop && shouldStop()) {
+          logger.info('QUEUE', `Iterator stopping due to shouldStop()`, { sessionId: sessionDbId });
+          // Emit idle so restart logic can trigger
+          this.events.emit('idle', sessionDbId);
+          return;
+        }
+
+        // Safe claim: message stays in DB with status='processing'
+        // Message will be marked 'processed' after observation is stored
+        const persistentMessage = this.store.claim(sessionDbId);
 
         if (persistentMessage) {
           // BUSY: about to yield a message for processing

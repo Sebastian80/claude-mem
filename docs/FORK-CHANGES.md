@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.6-jv.4`
+**Current Fork Version**: `9.0.6-jv.5`
 **Upstream Base**: `v9.0.6` (commit `c29d91a9`)
 **Last Merge**: 2026-01-23
 **Recent Updates**:
+- `9.0.6-jv.5`: Safe Message Processing - claim→process→delete pattern prevents message loss during restarts/rollover
 - `9.0.6-jv.4`: Infinite Rollover Loop Fix - reset lastInputTokens after rollover to prevent immediate re-trigger
 - `9.0.6-jv.3`: Claude Session Rollover - restart SDK sessions when context grows too large
 - `9.0.6-jv.2`: Context Truncation - prevent runaway context growth for Gemini/OpenAI providers
@@ -29,65 +30,68 @@ Categories are ordered by severity (critical fixes first).
 | 3 | J: Gemini/OpenAI memorySessionId | Bugfix - non-Claude providers crash without UUID | 2 | Active |
 | 4 | M: Context Truncation | Bugfix - prevent runaway context growth for Gemini/OpenAI | 8 | Active |
 | 5 | N: Claude Session Rollover | Bugfix - restart SDK sessions when context grows too large | 6 | Active |
-| 6 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
-| 7 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
-| 8 | H: Custom API Endpoints | Feature - configurable Gemini/OpenAI endpoints | 9 | Active |
-| 9 | K: Dynamic Model Selection | Feature - URL normalization, model fetching, OpenRouter→OpenAI | 15 | Active |
-| 10 | L: Settings Hot-Reload | Feature - apply settings changes without worker restart | 7 | Active |
-| 11 | I: Folder CLAUDE.md Optimization | Fix - disable by default, no empty files | 3 | Active |
-| 12 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
-| 13 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
-| 14 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
+| 6 | O: Safe Message Processing | Bugfix - claim→process→delete prevents message loss | 8 | Active |
+| 7 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
+| 8 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
+| 9 | H: Custom API Endpoints | Feature - configurable Gemini/OpenAI endpoints | 9 | Active |
+| 10 | K: Dynamic Model Selection | Feature - URL normalization, model fetching, OpenRouter→OpenAI | 15 | Active |
+| 11 | L: Settings Hot-Reload | Feature - apply settings changes without worker restart | 7 | Active |
+| 12 | I: Folder CLAUDE.md Optimization | Fix - disable by default, no empty files | 3 | Active |
+| 13 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
+| 14 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
+| 15 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
 
 ### Files by Category
 
-| File | C | A | J | M | N | E | D | H | K | L | I | B | F | G |
-|------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `src/services/worker/SDKAgent.ts` | + | | | | + | | | | | | | + | + | |
-| `src/services/worker/SessionManager.ts` | + | | | | + | | | | | + | | + | | |
-| `src/services/worker-service.ts` | + | | | | | | | | + | + | | | | |
-| `src/services/worker-types.ts` | | | | + | + | | | | + | + | | | | |
-| `src/services/sqlite/SessionStore.ts` | | | | | + | | | | | | | | | |
-| `src/types/database.ts` | | | | | + | | | | | | | | | |
-| `src/shared/worker-utils.ts` | | + | | | | | | | | | | | | |
-| `src/services/infrastructure/HealthMonitor.ts` | | + | | | | | | | | | | | | |
-| `plugin/scripts/worker-cli.js` | | + | | | | | | | | | | | | |
-| `plugin/scripts/smart-install.js` | | + | | | | | | | | | | | | |
-| `src/services/worker/BranchManager.ts` | | + | | | | | | | | | | | | |
-| `src/services/integrations/CursorHooksInstaller.ts` | | + | | | | | | | | | | | | |
-| `src/services/context/ContextBuilder.ts` | | + | | | | | | | | | | | | |
-| `src/services/sync/ChromaSync.ts` | | + | | | | | | | | | | | | |
-| `src/services/worker/GeminiAgent.ts` | | | + | + | | | | + | + | | | | | |
-| `src/services/worker/OpenAIAgent.ts` | | | + | + | | | | + | + | | | | | |
-| `src/services/worker/SearchManager.ts` | | | | | | + | | | | | | | | |
-| `src/services/sqlite/SessionSearch.ts` | | | | | | + | | | | | | | | |
-| `src/servers/mcp-server.ts` | | | | | | | + | | | | | | | |
-| `src/shared/SettingsDefaultsManager.ts` | | | | + | + | | | + | + | | + | + | + | |
-| `src/services/worker/http/routes/SettingsRoutes.ts` | | | | | | | | + | + | | | | | |
-| `src/services/worker/http/routes/SessionRoutes.ts` | | | | | + | | | | + | + | | | | |
-| `src/services/worker/http/middleware.ts` | | | | | | | | + | | | | | | |
-| `src/ui/viewer/types.ts` | | | | | | | | + | + | | | | | |
-| `src/ui/viewer/constants/settings.ts` | | | | | | | | + | + | | | | | |
-| `src/ui/viewer/constants/api.ts` | | | | | | | | | + | | | | | |
-| `src/ui/viewer/hooks/useSettings.ts` | | | | | | | | + | + | | | | | |
-| `src/ui/viewer/hooks/useModelFetch.ts` | | | | | | | | | + | | | | | |
-| `src/ui/viewer/components/ContextSettingsModal.tsx` | | | | | | | | + | + | | | | | |
-| `src/utils/url-utils.ts` | | | | | | | | | + | | | | | |
-| `src/services/worker/agents/types.ts` | | | | + | | | | | + | | | | | |
-| `src/services/worker/agents/FallbackErrorHandler.ts` | | | | + | | | | | | | | | | |
-| `src/services/worker/agents/index.ts` | | | | + | | | | | | | | | | |
-| `src/services/worker/utils/HistoryTruncation.ts` | | | | + | | | | | | | | | | |
-| `src/utils/claude-md-utils.ts` | | | | | | | | | | | + | | | |
-| `src/services/worker/agents/ResponseProcessor.ts` | | | | | | | | | | + | + | | | |
-| `src/sdk/prompts.ts` | | | | | | | | | | | | + | | |
-| `src/services/queue/SessionQueueProcessor.ts` | | | | | | | | | | + | | + | | |
-| `src/services/worker/settings/SettingsWatcher.ts` | | | | | | | | | | + | | | | |
-| `src/cli/handlers/session-init.ts` | | | | | | | | | | | | | + | |
-| `package.json` | | | | | | | | | | | | | | + |
-| `plugin/package.json` | | | | | | | | | | | | | | + |
-| `plugin/.claude-plugin/plugin.json` | | | | | | | | | | | | | | + |
-| `.claude-plugin/marketplace.json` | | | | | | | | | | | | | | + |
-| `README.md` | | | | | | | | | + | | | | | |
+| File | C | A | J | M | N | O | E | D | H | K | L | I | B | F | G |
+|------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `src/services/worker/SDKAgent.ts` | + | | | | + | + | | | | | | | + | + | |
+| `src/services/worker/SessionManager.ts` | + | | | | + | + | | | | | + | | + | | |
+| `src/services/worker-service.ts` | + | | | | | | | | | + | + | | | | |
+| `src/services/worker-types.ts` | | | | + | + | + | | | | + | + | | | | |
+| `src/services/sqlite/SessionStore.ts` | | | | | + | | | | | | | | | | |
+| `src/services/sqlite/PendingMessageStore.ts` | | | | | | + | | | | | | | | | |
+| `src/services/sqlite/transactions.ts` | | | | | | + | | | | | | | | | |
+| `src/services/queue/SessionQueueProcessor.ts` | | | | | | + | | | | | | | | | |
+| `src/types/database.ts` | | | | | + | | | | | | | | | | |
+| `src/shared/worker-utils.ts` | | + | | | | | | | | | | | | | |
+| `src/services/infrastructure/HealthMonitor.ts` | | + | | | | | | | | | | | | | |
+| `plugin/scripts/worker-cli.js` | | + | | | | | | | | | | | | | |
+| `plugin/scripts/smart-install.js` | | + | | | | | | | | | | | | | |
+| `src/services/worker/BranchManager.ts` | | + | | | | | | | | | | | | | |
+| `src/services/integrations/CursorHooksInstaller.ts` | | + | | | | | | | | | | | | | |
+| `src/services/context/ContextBuilder.ts` | | + | | | | | | | | | | | | | |
+| `src/services/sync/ChromaSync.ts` | | + | | | | | | | | | | | | | |
+| `src/services/worker/GeminiAgent.ts` | | | + | + | | + | | | + | + | | | | | |
+| `src/services/worker/OpenAIAgent.ts` | | | + | + | | + | | | + | + | | | | | |
+| `src/services/worker/SearchManager.ts` | | | | | | | + | | | | | | | | |
+| `src/services/sqlite/SessionSearch.ts` | | | | | | | + | | | | | | | | |
+| `src/servers/mcp-server.ts` | | | | | | | | + | | | | | | | |
+| `src/shared/SettingsDefaultsManager.ts` | | | | + | + | | | | + | + | | + | + | + | |
+| `src/services/worker/http/routes/SettingsRoutes.ts` | | | | | | | | | + | + | | | | | |
+| `src/services/worker/http/routes/SessionRoutes.ts` | | | | | + | + | | | | + | + | | | | |
+| `src/services/worker/http/middleware.ts` | | | | | | | | | + | | | | | | |
+| `src/ui/viewer/types.ts` | | | | | | | | | + | + | | | | | |
+| `src/ui/viewer/constants/settings.ts` | | | | | | | | | + | + | | | | | |
+| `src/ui/viewer/constants/api.ts` | | | | | | | | | | + | | | | | |
+| `src/ui/viewer/hooks/useSettings.ts` | | | | | | | | | + | + | | | | | |
+| `src/ui/viewer/hooks/useModelFetch.ts` | | | | | | | | | | + | | | | | |
+| `src/ui/viewer/components/ContextSettingsModal.tsx` | | | | | | | | | + | + | | | | | |
+| `src/utils/url-utils.ts` | | | | | | | | | | + | | | | | |
+| `src/services/worker/agents/types.ts` | | | | + | | | | | | + | | | | | |
+| `src/services/worker/agents/FallbackErrorHandler.ts` | | | | + | | | | | | | | | | | |
+| `src/services/worker/agents/index.ts` | | | | + | | | | | | | | | | | |
+| `src/services/worker/utils/HistoryTruncation.ts` | | | | + | | | | | | | | | | | |
+| `src/utils/claude-md-utils.ts` | | | | | | | | | | | | + | | | |
+| `src/services/worker/agents/ResponseProcessor.ts` | | | | | | + | | | | | + | + | | | |
+| `src/sdk/prompts.ts` | | | | | | | | | | | | | + | | |
+| `src/services/worker/settings/SettingsWatcher.ts` | | | | | | | | | | | + | | | | |
+| `src/cli/handlers/session-init.ts` | | | | | | | | | | | | | | + | |
+| `package.json` | | | | | | | | | | | | | | | + |
+| `plugin/package.json` | | | | | | | | | | | | | | | + |
+| `plugin/.claude-plugin/plugin.json` | | | | | | | | | | | | | | | + |
+| `.claude-plugin/marketplace.json` | | | | | | | | | | | | | | | + |
+| `README.md` | | | | | | | | | | + | | | | | |
 
 ---
 

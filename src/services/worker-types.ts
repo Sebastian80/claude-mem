@@ -41,6 +41,15 @@ export interface ActiveSession {
   idleSince?: number | null;  // Timestamp when generator became idle (for debugging)
   currentGeneratorId?: string | null;  // Unique ID for current generator instance (prevents .finally() race)
   inFlightCount?: number;  // Count of claimed-but-unprocessed messages (for SDK prefetch safety)
+  /**
+   * FIFO queue of message IDs being processed.
+   * Push when yielding prompt, shift when processing response.
+   * Handles SDK prefetch where multiple prompts may be in-flight.
+   *
+   * IMPORTANT: Push `undefined` for init/continuation prompts (no messageId).
+   * Only observation/summarize prompts have real messageIds.
+   */
+  processingMessageIdQueue?: (number | undefined)[];
 }
 
 export interface PendingMessage {
