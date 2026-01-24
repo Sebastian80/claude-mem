@@ -10,12 +10,17 @@ For full documentation, features, and installation instructions, please visit th
 
 This fork addresses specific stability and usability issues encountered in our environment. All patches are maintained separately to allow easy merging of upstream updates.
 
+**Current Version**: `9.0.6-jv.5` (based on upstream v9.0.6)
+
 ## Fork Patches
 
-### Stability Fixes
+### Critical Stability Fixes
 
 | Patch | Description |
 |-------|-------------|
+| **Safe Message Processing** | Claim→process→delete pattern prevents message loss during worker restarts or session rollover. Messages remain in database until observations are successfully stored. |
+| **Claude Session Rollover** | Restart SDK sessions when context grows too large (default: 150k tokens). Decouples DB identity from provider session to prevent orphaned observations. |
+| **Context Truncation** | Prevents runaway context growth for Gemini/OpenAI providers. Removes duplicate history appends, adds shared truncation utility with pinned message support. |
 | **Zombie Process Cleanup** | SDK child processes were not properly terminated when sessions ended, accumulating over time. Added explicit `SIGTERM` cleanup using process detection. |
 | **Dynamic Path Resolution** | Replaced hardcoded marketplace paths with dynamic resolution to prevent crashes on different installations. |
 | **Gemini/OpenAI memorySessionId** | Non-Claude providers crashed without a session ID. Now generates UUID automatically for Gemini and OpenAI-compatible providers. |
@@ -118,8 +123,6 @@ See the [LICENSE](LICENSE) file for full details.
 - **Fork Issues**: [GitHub Issues](https://github.com/JillVernus/claude-mem/issues)
 - **Upstream Documentation**: [docs.claude-mem.ai](https://docs.claude-mem.ai)
 - **Upstream Issues**: [GitHub Issues](https://github.com/thedotmack/claude-mem/issues)
-- **Official X Account**: [@Claude_Memory](https://x.com/Claude_Memory)
-- **Official Discord**: [Join Discord](https://discord.com/invite/J4wttp9vDu)
 
 ---
 
