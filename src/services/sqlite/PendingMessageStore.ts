@@ -35,14 +35,17 @@ export interface PersistentPendingMessage {
  *
  * Recovery:
  * - getSessionsWithPendingMessages() - Find sessions that need recovery on startup
+ * - claim() checks for orphaned 'processing' messages from previous crash
  */
 export class PendingMessageStore {
   private db: Database;
   private maxRetries: number;
+  private storeInitEpoch: number;  // Track when this store instance was created (for orphan detection)
 
   constructor(db: Database, maxRetries: number = 3) {
     this.db = db;
     this.maxRetries = maxRetries;
+    this.storeInitEpoch = Date.now();  // Capture init time for orphan detection
   }
 
   /**
@@ -114,9 +117,22 @@ export class PendingMessageStore {
    * Message stays in DB with status='processing' until explicitly marked complete.
    * Uses transaction with retry to handle race conditions.
    *
+   * Recovery: First checks for orphaned 'processing' messages from previous crash.
+   * Orphans are identified by started_processing_at_epoch < storeInitEpoch.
+   *
+   * Design note: This assumes single processor per session, which is true for
+   * claude-mem architecture. Each session has exactly one generator processing its queue.
+   *
    * @returns Claimed message, or null if queue is truly empty
    */
   claim(sessionDbId: number): PersistentPendingMessage | null {
+    // STEP 1: Check for orphaned processing messages (from previous worker crash)
+    const orphanedMessage = this.reclaimOrphanedMessage(sessionDbId);
+    if (orphanedMessage) {
+      return orphanedMessage;
+    }
+
+    // STEP 2: No orphans, claim a new pending message (existing logic)
     const now = Date.now();
     const MAX_RETRIES = 3;
 
@@ -201,6 +217,73 @@ export class PendingMessageStore {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Reclaim an orphaned "processing" message from a previous worker crash.
+   * Only reclaims messages where started_processing_at_epoch < storeInitEpoch OR IS NULL.
+   * Increments retry_count and marks as 'failed' after maxRetries.
+   *
+   * Design note: This assumes single processor per session, which is true for
+   * claude-mem architecture. Each session has exactly one generator processing its queue.
+   */
+  private reclaimOrphanedMessage(sessionDbId: number): PersistentPendingMessage | null {
+    // Use loop instead of recursion to avoid stack overflow with many orphans
+    while (true) {
+      // Find orphaned messages: processing AND (from before this worker started OR NULL timestamp)
+      // NULL check handles edge case of crash between status update and timestamp set
+      const orphanStmt = this.db.prepare(`
+        SELECT * FROM pending_messages
+        WHERE session_db_id = ?
+          AND status = 'processing'
+          AND (started_processing_at_epoch IS NULL OR started_processing_at_epoch < ?)
+        ORDER BY id ASC
+        LIMIT 1
+      `);
+
+      const orphan = orphanStmt.get(sessionDbId, this.storeInitEpoch) as PersistentPendingMessage | undefined;
+      if (!orphan) return null;
+
+      // Check retry count - if exceeded, mark as failed and continue to next orphan
+      if (orphan.retry_count >= this.maxRetries) {
+        logger.error('QUEUE', `ORPHAN_FAILED | messageId=${orphan.id} | retryCount=${orphan.retry_count} | reason=max_retries_exceeded`, {
+          sessionId: sessionDbId
+        });
+        this.markOrphanFailed(orphan.id);
+        continue; // Loop to check for more orphans
+      }
+
+      // Update timestamp and increment retry count
+      const updateStmt = this.db.prepare(`
+        UPDATE pending_messages
+        SET started_processing_at_epoch = ?, retry_count = retry_count + 1
+        WHERE id = ?
+      `);
+      updateStmt.run(Date.now(), orphan.id);
+
+      // Fetch updated message
+      const fetchStmt = this.db.prepare(`SELECT * FROM pending_messages WHERE id = ?`);
+      const updated = fetchStmt.get(orphan.id) as PersistentPendingMessage;
+
+      logger.info('QUEUE', `RE-CLAIM | messageId=${updated.id} | retryCount=${updated.retry_count} | reason=orphan_recovery`, {
+        sessionId: sessionDbId
+      });
+
+      return updated;
+    }
+  }
+
+  /**
+   * Mark orphan as permanently failed (no retry logic, just fail it)
+   */
+  private markOrphanFailed(messageId: number): void {
+    const now = Date.now();
+    const stmt = this.db.prepare(`
+      UPDATE pending_messages
+      SET status = 'failed', completed_at_epoch = ?
+      WHERE id = ?
+    `);
+    stmt.run(now, messageId);
   }
 
   /**

@@ -599,6 +599,44 @@ eventBroadcaster.broadcastSettingsChanged({
 
 ---
 
+## Design Decisions
+
+### Batch vs Non-Batch Claim Patterns (v9.0.6-jv.5)
+
+**Decision**: Two different claim patterns for batch vs non-batch modes:
+
+| Mode | Method | Behavior | Trade-off |
+|------|--------|----------|-----------|
+| Non-batch | `claim()` | Message stays in DB with status='processing' until `markProcessed()` called | Crash-safe: stuck messages can be recovered |
+| Batch | `claimAndDelete()` | Message deleted from DB immediately, held in memory | Not crash-safe, but enables cost-efficient batch prompts |
+
+**Rationale**: Batch mode drains ALL pending messages into memory to combine them into fewer API calls. If the batch fails, all messages in that batch are lost - but this trade-off is acceptable because:
+1. Batch mode is opt-in (disabled by default)
+2. Users who enable batching prioritize cost savings over crash safety
+3. The batch is typically processed quickly before any crash could occur
+
+**Implementation**:
+- `SessionQueueProcessor.createIterator()` uses `claim()`
+- `SessionQueueProcessor.createBatchIterator()` uses `claimAndDelete()`
+
+### Known Issue: Missing Recovery for SDK Failures (discovered 2026-01-26)
+
+**Problem**: When batching is disabled and using the safe `claim()` pattern, if the SDK/Claude CLI fails **after** claiming messages but **before** processing responses, messages stay stuck in "processing" status indefinitely.
+
+**Symptoms**:
+- Messages accumulate with status='processing'
+- No Claude processes running to process them
+- New messages keep getting claimed but never completed
+
+**Root Cause**: The crash recovery in generator `.finally()` only restarts the generator - it doesn't reset stuck "processing" messages back to "pending".
+
+**TODO**: Implement stuck message recovery mechanism:
+1. Periodic check for "processing" messages older than N seconds
+2. Reset them to "pending" status for retry
+3. Add better error logging around SDK `query()` to catch silent failures
+
+---
+
 ## Acceptance Criteria
 
 - [ ] Changing `CLAUDE_MEM_PROVIDER` applies to next observation without worker restart
