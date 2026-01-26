@@ -10,7 +10,7 @@ For full documentation, features, and installation instructions, please visit th
 
 This fork addresses specific stability and usability issues encountered in our environment. All patches are maintained separately to allow easy merging of upstream updates.
 
-**Current Version**: `9.0.6-jv.5` (based on upstream v9.0.6)
+**Current Version**: `9.0.8-jv.1` (based on upstream v9.0.8)
 
 ## Fork Patches
 
@@ -21,7 +21,7 @@ This fork addresses specific stability and usability issues encountered in our e
 | **Safe Message Processing** | Claim→process→delete pattern prevents message loss during worker restarts or session rollover. Messages remain in database until observations are successfully stored. |
 | **Claude Session Rollover** | Restart SDK sessions when context grows too large (default: 150k tokens). Decouples DB identity from provider session to prevent orphaned observations. |
 | **Context Truncation** | Prevents runaway context growth for Gemini/OpenAI providers. Removes duplicate history appends, adds shared truncation utility with pinned message support. |
-| **Zombie Process Cleanup** | SDK child processes were not properly terminated when sessions ended, accumulating over time. Added explicit `SIGTERM` cleanup using process detection. |
+| ~~**Zombie Process Cleanup**~~ | *(Upstreamed in v9.0.8)* SDK child processes were not properly terminated when sessions ended. Upstream now includes native `ProcessRegistry` for subprocess lifecycle management. |
 | **Dynamic Path Resolution** | Replaced hardcoded marketplace paths with dynamic resolution to prevent crashes on different installations. |
 | **Gemini/OpenAI memorySessionId** | Non-Claude providers crashed without a session ID. Now generates UUID automatically for Gemini and OpenAI-compatible providers. |
 
@@ -98,7 +98,7 @@ export OPENAI_BASE_URL="https://my-gateway.com/v1/chat/completions"
 ## Version Format
 
 Fork versions follow the format `{upstream}-jv.{patch}`:
-- `9.0.6-jv.1` = Based on upstream v9.0.6, fork patch version 1
+- `9.0.8-jv.1` = Based on upstream v9.0.8, fork patch version 1
 
 ---
 
