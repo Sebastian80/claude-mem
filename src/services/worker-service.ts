@@ -132,6 +132,9 @@ export class WorkerService {
   // Orphan reaper cleanup function (Issue #737)
   private stopOrphanReaper: (() => void) | null = null;
 
+  // Periodic recovery cleanup function (Phase 4 of Stuck Message Recovery)
+  private stopPeriodicRecovery: (() => void) | null = null;
+
   constructor() {
     // Initialize the promise that will resolve when background initialization completes
     this.initializationComplete = new Promise((resolve) => {
@@ -333,6 +336,9 @@ export class WorkerService {
       });
       logger.info('SYSTEM', 'Started orphan reaper (runs every 5 minutes)');
 
+      // Start periodic recovery to recover orphaned sessions (Phase 4 of Stuck Message Recovery)
+      this.stopPeriodicRecovery = this.startPeriodicRecovery();
+
       // Auto-recover orphaned queues (fire-and-forget with error logging)
       this.processPendingQueues(50).then(result => {
         if (result.sessionsStarted > 0) {
@@ -407,8 +413,10 @@ export class WorkerService {
 
   /**
    * Process pending session queues
+   * @param sessionLimit - Maximum number of sessions to start
+   * @param source - Source identifier for logging (e.g., 'startup-recovery', 'periodic-recovery', 'manual-api')
    */
-  async processPendingQueues(sessionLimit: number = 10): Promise<{
+  async processPendingQueues(sessionLimit: number = 10, source: string = 'startup-recovery'): Promise<{
     totalPendingSessions: number;
     sessionsStarted: number;
     sessionsSkipped: number;
@@ -434,7 +442,8 @@ export class WorkerService {
 
       try {
         const existingSession = this.sessionManager.getSession(sessionDbId);
-        if (existingSession?.generatorPromise) {
+        // Skip if generator is already running OR recovery is in progress (Phase 3 flag)
+        if (existingSession?.generatorPromise || existingSession?.recoveryInProgress) {
           result.sessionsSkipped++;
           continue;
         }
@@ -442,10 +451,11 @@ export class WorkerService {
         const session = this.sessionManager.initializeSession(sessionDbId);
         logger.info('SYSTEM', `Starting processor for session ${sessionDbId}`, {
           project: session.project,
-          pendingCount: pendingStore.getPendingCount(sessionDbId)
+          pendingCount: pendingStore.getPendingCount(sessionDbId),
+          source
         });
 
-        this.startSessionProcessor(session, 'startup-recovery');
+        this.startSessionProcessor(session, source);
         result.sessionsStarted++;
         result.startedSessionIds.push(sessionDbId);
 
@@ -460,11 +470,107 @@ export class WorkerService {
   }
 
   /**
+   * Start periodic recovery for orphaned sessions with pending messages.
+   * Runs at configurable interval (default: 5 minutes) with jitter to prevent thundering herd.
+   *
+   * This is Phase 4 of the Stuck Message Recovery bugfix (v9.0.8-jv.3).
+   *
+   * Key behaviors:
+   * - Uses `processPendingQueues()` which checks both `generatorPromise` and `recoveryInProgress` flag
+   * - Does NOT call `resetStuckMessages()` - that's handled by a separate timeout
+   * - Jitter (0-20% additive) prevents multiple workers from recovering simultaneously
+   */
+  private startPeriodicRecovery(): (() => void) | null {
+    const { SettingsDefaultsManager } = require('../shared/SettingsDefaultsManager.js');
+    const { USER_SETTINGS_PATH } = require('../shared/paths.js');
+
+    const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+
+    // Check if periodic recovery is enabled
+    const enabled = settings.CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED?.toLowerCase() !== 'false';
+    if (!enabled) {
+      logger.info('SYSTEM', 'Periodic recovery disabled by setting');
+      return null;
+    }
+
+    // Get interval (default: 5 minutes)
+    const parsedInterval = parseInt(settings.CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL || '300000', 10);
+    const baseInterval = isNaN(parsedInterval) ? 300000 : parsedInterval;
+    if (baseInterval < 60000) {
+      logger.warn('SYSTEM', 'Periodic recovery interval too low, using minimum 60s', {
+        configured: settings.CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL
+      });
+    }
+    const interval = Math.max(60000, baseInterval); // Minimum 1 minute
+
+    // Add jitter: 0-20% of interval to prevent thundering herd
+    const getJitteredInterval = () => {
+      const jitter = Math.random() * 0.2 * interval;
+      return interval + jitter;
+    };
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let stopped = false;
+
+    const runRecovery = async () => {
+      if (stopped) return;
+
+      try {
+        // Check for sessions with pending messages that have no running generator
+        const result = await this.processPendingQueues(10, 'periodic-recovery');
+
+        if (result.sessionsStarted > 0) {
+          logger.info('SYSTEM', `Periodic recovery: started ${result.sessionsStarted} sessions`, {
+            totalPending: result.totalPendingSessions,
+            started: result.sessionsStarted,
+            skipped: result.sessionsSkipped,
+            sessionIds: result.startedSessionIds
+          });
+        } else if (result.totalPendingSessions > 0) {
+          // Sessions exist but were skipped (already have generators)
+          logger.debug('SYSTEM', 'Periodic recovery: sessions have pending work but generators are running', {
+            totalPending: result.totalPendingSessions,
+            skipped: result.sessionsSkipped
+          });
+        }
+      } catch (error) {
+        logger.error('SYSTEM', 'Periodic recovery failed', {}, error as Error);
+      }
+
+      // Schedule next run with jitter
+      if (!stopped) {
+        const nextInterval = getJitteredInterval();
+        timeoutId = setTimeout(runRecovery, nextInterval);
+      }
+    };
+
+    // Start first run after initial jitter delay
+    const initialDelay = getJitteredInterval();
+    logger.info('SYSTEM', `Started periodic recovery (interval: ${Math.round(interval / 1000)}s, first run in ${Math.round(initialDelay / 1000)}s)`);
+    timeoutId = setTimeout(runRecovery, initialDelay);
+
+    // Return cleanup function
+    return () => {
+      stopped = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
+  }
+
+  /**
    * Shutdown the worker service
    */
   async shutdown(): Promise<void> {
     // Stop settings watcher to prevent process leak
     this.settingsWatcher.stop();
+
+    // Stop periodic recovery before shutdown (Phase 4 of Stuck Message Recovery)
+    if (this.stopPeriodicRecovery) {
+      this.stopPeriodicRecovery();
+      this.stopPeriodicRecovery = null;
+    }
 
     // Stop orphan reaper before shutdown (Issue #737)
     if (this.stopOrphanReaper) {

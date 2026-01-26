@@ -3,11 +3,12 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.8-jv.1`
+**Current Fork Version**: `9.0.8-jv.3`
 **Upstream Base**: `v9.0.8` (commit `bab8f554`)
 **Last Merge**: 2026-01-26
 **Recent Updates**:
-- `9.0.8-jv.2` (WIP): Stuck Message Recovery Bugfix - terminal error handling, session cache refresh, provider selection fix, periodic recovery
+- `9.0.8-jv.3`: Stuck Message Recovery Bugfix Phase 4 - periodic orphan recovery with configurable interval + jitter
+- `9.0.8-jv.2`: Stuck Message Recovery Bugfix Phases 1-3 - terminal error handling, session cache refresh, provider selection fix, crash recovery hardening
 - `9.0.8-jv.1`: Merged upstream v9.0.8 - **Category C (Zombie Process Cleanup) REMOVED** - upstream now uses ProcessRegistry with PID tracking, which is superior to our pgrep-based approach
 - `9.0.6-jv.8`: Timeout-Based Message Recovery - recover messages stuck from generator failures within current worker lifecycle (5 min timeout + worker_port check)
 - `9.0.6-jv.7`: Stuck Message Recovery - recover orphaned "processing" messages after worker crash using storeInitEpoch
@@ -37,7 +38,7 @@ Categories are ordered by severity (critical fixes first).
 | 4 | M: Context Truncation | Bugfix - prevent runaway context growth for Gemini/OpenAI | 8 | Active |
 | 5 | N: Claude Session Rollover | Bugfix - restart SDK sessions when context grows too large | 6 | Active |
 | 6 | O: Safe Message Processing | Bugfix - claim→process→delete prevents message loss + orphan recovery + timeout recovery | 8 | Active |
-| 7 | Q: Stuck Message Recovery Bugfix | Bugfix - terminal error handling, cache refresh, provider selection, periodic recovery | 4 | 🚧 WIP |
+| 7 | Q: Stuck Message Recovery Bugfix | Bugfix - terminal error handling, cache refresh, provider selection, periodic recovery | 5 | Active |
 | 8 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
 | 9 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
 | 10 | H: Custom API Endpoints | Feature - configurable Gemini/OpenAI endpoints | 9 | Active |
@@ -74,7 +75,7 @@ Categories are ordered by severity (critical fixes first).
 | `src/services/worker/SearchManager.ts` | | | | | | | | | + | | | | | | | | |
 | `src/services/sqlite/SessionSearch.ts` | | | | | | | | | + | | | | | | | | |
 | `src/servers/mcp-server.ts` | | | | | | | | | | + | | | | | | | |
-| `src/shared/SettingsDefaultsManager.ts` | | | | | + | + | | | | | + | + | | + | + | + | |
+| `src/shared/SettingsDefaultsManager.ts` | | | | | + | + | + | | | | + | + | | + | + | + | |
 | `src/services/worker/http/routes/SettingsRoutes.ts` | | | | | | | | | | | + | + | | | | | |
 | `src/services/worker/http/routes/SessionRoutes.ts` | | + | | | | + | + | + | | | | + | + | | | | |
 | `src/services/worker/http/middleware.ts` | | | | | | | | | | | + | | | | | | |
@@ -887,7 +888,7 @@ grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/work
 
 ---
 
-### Category Q: Stuck Message Recovery Bugfix (Priority 7) 🚧 WIP
+### Category Q: Stuck Message Recovery Bugfix (Priority 7)
 
 **Problem**: Sessions can become orphaned with pending messages that are never processed. This occurs due to 5 interacting bugs:
 1. Stale `claude_resume_session_id` prevents recovery (SDK aborts on invalid resume ID)
@@ -900,7 +901,7 @@ grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/work
 - **Phase 1**: Terminal error detection in SDKAgent.ts - clear stale resume ID on terminal errors
 - **Phase 2**: Refresh session state from database on cache hit
 - **Phase 3**: Add error handling to crash recovery + fix provider selection
-- **Phase 4**: Add periodic orphan recovery
+- **Phase 4**: Add periodic orphan recovery with configurable interval + jitter
 
 **Files**:
 | File | Change |
@@ -908,7 +909,21 @@ grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/work
 | `src/services/worker/SDKAgent.ts` | Terminal error detection with whitelist, clear resume ID (DB + memory), transient error exclusions |
 | `src/services/worker/SessionManager.ts` | Refresh `claudeResumeSessionId` and `lastInputTokens` from DB on cache hit |
 | `src/services/worker/http/routes/SessionRoutes.ts` | Error handling in crash recovery, `recoveryInProgress` flag |
-| `src/services/worker-service.ts` | Fix provider selection in `startSessionProcessor`, add periodic recovery |
+| `src/services/worker-service.ts` | Fix provider selection in `startSessionProcessor`, add periodic recovery, add source parameter to processPendingQueues |
+| `src/shared/SettingsDefaultsManager.ts` | Add `CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED` and `CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL` settings |
+
+**Configuration** (`~/.claude-mem/settings.json`):
+```json
+{
+  "CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED": "true",
+  "CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL": "300000"
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED` | `"true"` | Enable periodic orphan recovery |
+| `CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL` | `"300000"` | Interval in milliseconds (5 minutes) |
 
 **Phase 1 Implementation** (Completed):
 - Terminal error patterns: "aborted by user", "invalid session id", "unknown session", "session timed out", etc.
@@ -938,6 +953,16 @@ grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/work
 - **Type Updates** (`worker-types.ts`):
   - Added `recoveryInProgress?: boolean` field to `ActiveSession` interface
 
+**Phase 4 Implementation** (Completed):
+- **Periodic Recovery** (`worker-service.ts`):
+  - Added `startPeriodicRecovery()` method with configurable interval (default: 5 minutes)
+  - 0-20% additive jitter prevents thundering herd when multiple workers run
+  - Uses `processPendingQueues()` which checks both `generatorPromise` and `recoveryInProgress` flags
+  - Does NOT call `resetStuckMessages()` - that's handled by separate 5-minute timeout
+  - Minimum 1 minute floor on interval, NaN fallback to 5 minutes
+  - Added `source` parameter to `processPendingQueues()` for accurate logging
+  - Integrated into worker startup/shutdown lifecycle
+
 **Verification**:
 ```bash
 # Phase 1: Check terminal error handling
@@ -955,8 +980,11 @@ grep -n 'getSelectedProvider' src/services/worker-service.ts
 # Phase 3: Check crash recovery error handling
 grep -n 'recoveryInProgress' src/services/worker/http/routes/SessionRoutes.ts
 
-# Phase 3: Check recoveryInProgress type
-grep -n 'recoveryInProgress' src/services/worker-types.ts
+# Phase 4: Check periodic recovery
+grep -n 'startPeriodicRecovery' src/services/worker-service.ts
+
+# Phase 4: Check settings
+grep -n 'CLAUDE_MEM_PERIODIC_RECOVERY' src/shared/SettingsDefaultsManager.ts
 ```
 
 **Plan**: `docs/plans/2026-01-26-stuck-message-recovery-bugfix.md`

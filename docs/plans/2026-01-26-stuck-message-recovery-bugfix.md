@@ -1,8 +1,8 @@
 # Stuck Message Recovery Bugfix Plan
 
 **Created**: 2026-01-26
-**Status**: Planning
-**Version**: v9.0.8-jv.2
+**Status**: Complete
+**Version**: v9.0.8-jv.3
 
 ## Problem Statement
 
@@ -121,24 +121,25 @@ session.generatorPromise = this.sdkAgent.startSession(session, this)
 **Priority**: Medium - Adds safety net
 
 #### 4a: Add Periodic Recovery
-- [ ] Create periodic check for sessions with pending messages
-- [ ] Make interval configurable via settings (default: 5 minutes)
-- [ ] Add jitter/backoff to prevent thundering-herd restarts
-- [ ] Only recover sessions that:
+- [x] Create periodic check for sessions with pending messages
+- [x] Make interval configurable via settings (default: 5 minutes)
+- [x] Add jitter/backoff to prevent thundering-herd restarts
+- [x] Only recover sessions that:
   - Have pending messages in DB
   - Are NOT in worker memory OR have no running generator
-- [ ] Check per-session `recoveryInProgress` flag before attempting recovery
-- [ ] Integrate with existing orphan reaper interval or create new one
-- [ ] Add telemetry logging for recovery events
+- [x] Check per-session `recoveryInProgress` flag before attempting recovery
+- [x] Integrate with existing orphan reaper interval or create new one
+- [x] Add telemetry logging for recovery events
 
 #### 4b: Handle `processing` Messages
-- [ ] **Explicit behavior**: Periodic recovery does NOT call `resetStuckMessages()` directly
-- [ ] Periodic recovery only triggers `processPendingQueues()` which uses `claim()` to acquire messages
-- [ ] The existing `resetStuckMessages()` timeout logic (separate background task) handles stuck `processing` → `pending` transitions
-- [ ] This separation prevents double-processing and maintains clear ownership
+- [x] **Explicit behavior**: Periodic recovery does NOT call `resetStuckMessages()` directly
+- [x] Periodic recovery only triggers `processPendingQueues()` which uses `claim()` to acquire messages
+- [x] The existing `resetStuckMessages()` timeout logic (separate background task) handles stuck `processing` → `pending` transitions
+- [x] This separation prevents double-processing and maintains clear ownership
 
 **Files to modify**:
 - `src/services/worker-service.ts`
+- `src/shared/SettingsDefaultsManager.ts`
 
 ## Files Changed Summary
 
@@ -147,7 +148,8 @@ session.generatorPromise = this.sdkAgent.startSession(session, this)
 | `src/services/worker/SDKAgent.ts` | Handle terminal errors with whitelist, clear stale resume ID (DB + memory) only on resume attempts |
 | `src/services/worker/SessionManager.ts` | Refresh claudeResumeSessionId and last_input_tokens from DB on cache hit |
 | `src/services/worker/http/routes/SessionRoutes.ts` | Add error handling to crash recovery, add per-session recoveryInProgress flag |
-| `src/services/worker-service.ts` | Fix provider selection, add periodic recovery with configurable interval + jitter |
+| `src/services/worker-service.ts` | Fix provider selection, add periodic recovery with configurable interval + jitter, add source parameter to processPendingQueues |
+| `src/shared/SettingsDefaultsManager.ts` | Add CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED and CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL settings |
 
 ## Testing Plan
 
@@ -172,15 +174,15 @@ session.generatorPromise = this.sdkAgent.startSession(session, this)
 
 ## Acceptance Criteria
 
-- [ ] Stuck messages are automatically recovered within configured interval (default 5 min)
-- [ ] Recovery respects current `CLAUDE_MEM_PROVIDER` setting
-- [ ] Stale `claude_resume_session_id` doesn't prevent recovery
-- [ ] Database fixes take effect without manual session deletion
-- [ ] Crash recovery errors are logged and handled gracefully
-- [ ] No increase in worker memory usage from periodic checks
-- [ ] Transient errors preserve resume state for retry
-- [ ] No race conditions between recovery paths
-- [ ] Resume ID only cleared when resume was actually attempted
+- [x] Stuck messages are automatically recovered within configured interval (default 5 min)
+- [x] Recovery respects current `CLAUDE_MEM_PROVIDER` setting
+- [x] Stale `claude_resume_session_id` doesn't prevent recovery
+- [x] Database fixes take effect without manual session deletion
+- [x] Crash recovery errors are logged and handled gracefully
+- [x] No increase in worker memory usage from periodic checks
+- [x] Transient errors preserve resume state for retry
+- [x] No race conditions between recovery paths
+- [x] Resume ID only cleared when resume was actually attempted
 
 ## Rollback Plan
 
@@ -232,3 +234,17 @@ If issues arise:
 6. ✅ Phase 3: `recoveryInProgress` always cleared in `finally` block
 7. ✅ Phase 3: All recovery paths (crash, periodic, manual) must respect `recoveryInProgress`
 8. ✅ Phase 4: Explicit that periodic recovery does NOT call `resetStuckMessages()` - relies on `claim()` reclaim logic
+
+### Review 3 (2026-01-26) - Phase 4 Implementation
+
+**Reviewer**: Codex
+
+**Feedback Applied**:
+1. ✅ Fixed NaN interval tight loop - explicit `isNaN()` check with fallback to 300000ms before `Math.max()`
+2. ✅ Added `recoveryInProgress` check to `processPendingQueues()` alongside `generatorPromise` check
+3. ✅ Added `source` parameter to `processPendingQueues()` for accurate logging
+4. ✅ Updated JSDoc to accurately describe behavior (jitter is additive 0-20%)
+
+**Feedback Deferred (non-blocking)**:
+- Manual `/api/pending-queue/process` uses default source - acceptable for now
+- Settings not exposed via API/UI - manual file edits work, low-frequency change
