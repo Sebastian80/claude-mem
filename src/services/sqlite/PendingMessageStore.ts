@@ -41,6 +41,7 @@ export class PendingMessageStore {
   private db: Database;
   private maxRetries: number;
   private storeInitEpoch: number;  // Track when this store instance was created (for orphan detection)
+  private readonly orphanTimeoutMs: number = 5 * 60 * 1000; // 5 minutes timeout for Phase 4 recovery
 
   constructor(db: Database, maxRetries: number = 3) {
     this.db = db;
@@ -132,7 +133,13 @@ export class PendingMessageStore {
       return orphanedMessage;
     }
 
-    // STEP 2: No orphans, claim a new pending message (existing logic)
+    // STEP 2: Check for timed-out messages (from current worker, generator failed)
+    const timedOutMessage = this.reclaimTimedOutMessage(sessionDbId);
+    if (timedOutMessage) {
+      return timedOutMessage;
+    }
+
+    // STEP 3: No orphans or timeouts, claim a new pending message (existing logic)
     const now = Date.now();
     const MAX_RETRIES = 3;
 
@@ -284,6 +291,83 @@ export class PendingMessageStore {
       WHERE id = ?
     `);
     stmt.run(now, messageId);
+  }
+
+  /**
+   * Reclaim messages that have timed out AND have no active session connection.
+   * This catches messages orphaned by generator failure within current worker lifecycle.
+   *
+   * Phase 4 recovery - handles the case where:
+   * 1. Worker starts, storeInitEpoch captured
+   * 2. Session auto-recovers and claims messages (timestamps > storeInitEpoch)
+   * 3. Generator fails immediately (e.g., "Claude Code process exited with code 1")
+   * 4. Messages stuck - timestamps are AFTER storeInitEpoch, so Phase 1-3 doesn't detect them
+   *
+   * Safeguards against false positives:
+   * 1. Timeout threshold (5 min) - allows for API latency, rate limiting
+   * 2. worker_port IS NULL - confirms no active connection
+   * 3. session.status IN ('failed', 'completed') - alternative check
+   * 4. Retry count limit - prevents infinite loops on poison messages
+   *
+   * Design note: This assumes single processor per session, which is true for
+   * claude-mem architecture. Each session has exactly one generator processing its queue.
+   */
+  private reclaimTimedOutMessage(sessionDbId: number): PersistentPendingMessage | null {
+    const cutoffTime = Date.now() - this.orphanTimeoutMs;
+
+    while (true) {
+      // Find timed-out messages where session has no active worker connection
+      // Join with sdk_sessions to check worker_port and status
+      // Only consider messages from CURRENT worker (>= storeInitEpoch) - Phase 1-3 handles older ones
+      const timedOutStmt = this.db.prepare(`
+        SELECT pm.* FROM pending_messages pm
+        JOIN sdk_sessions s ON pm.session_db_id = s.id
+        WHERE pm.session_db_id = ?
+          AND pm.status = 'processing'
+          AND pm.started_processing_at_epoch < ?
+          AND pm.started_processing_at_epoch >= ?
+          AND (s.worker_port IS NULL OR s.status IN ('failed', 'completed'))
+        ORDER BY pm.id ASC
+        LIMIT 1
+      `);
+
+      const timedOut = timedOutStmt.get(
+        sessionDbId,
+        cutoffTime,           // older than timeout
+        this.storeInitEpoch   // but from current worker (not caught by Phase 1-3)
+      ) as PersistentPendingMessage | undefined;
+
+      if (!timedOut) return null;
+
+      // Check retry count - if exceeded, mark as failed
+      if (timedOut.retry_count >= this.maxRetries) {
+        const ageMs = Date.now() - (timedOut.started_processing_at_epoch || 0);
+        logger.error('QUEUE', `TIMEOUT_FAILED | messageId=${timedOut.id} | retryCount=${timedOut.retry_count} | ageMs=${ageMs} | reason=max_retries_exceeded`, {
+          sessionId: sessionDbId
+        });
+        this.markOrphanFailed(timedOut.id);
+        continue;
+      }
+
+      // Update timestamp and increment retry count
+      const updateStmt = this.db.prepare(`
+        UPDATE pending_messages
+        SET started_processing_at_epoch = ?, retry_count = retry_count + 1
+        WHERE id = ?
+      `);
+      updateStmt.run(Date.now(), timedOut.id);
+
+      // Fetch updated message
+      const fetchStmt = this.db.prepare(`SELECT * FROM pending_messages WHERE id = ?`);
+      const updated = fetchStmt.get(timedOut.id) as PersistentPendingMessage;
+
+      const ageMs = Date.now() - (timedOut.started_processing_at_epoch || 0);
+      logger.info('QUEUE', `RE-CLAIM | messageId=${updated.id} | retryCount=${updated.retry_count} | ageMs=${ageMs} | reason=timeout_recovery`, {
+        sessionId: sessionDbId
+      });
+
+      return updated;
+    }
   }
 
   /**

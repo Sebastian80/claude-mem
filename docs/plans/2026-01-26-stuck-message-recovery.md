@@ -2,7 +2,13 @@
 
 **Issue**: Messages stuck in "processing" status after SDK/Claude CLI crash
 **Date**: 2026-01-26
-**Status**: ✅ Implemented (v9.0.6-jv.7)
+**Status**: 🔄 Phase 1-3 Implemented (v9.0.6-jv.7), Phase 4 In Progress (v9.0.6-jv.8)
+
+## Related Issues
+
+| Issue | Status | Description |
+|-------|--------|-------------|
+| Session status not updated on generator failure | 🔴 TODO | When generator fails with exit code 1, session status remains 'active' instead of being set to 'failed'. Investigate after Phase 4. |
 
 ## Codex Review History
 
@@ -293,11 +299,159 @@ markProcessed(messageId: number): boolean {
 
 ---
 
+## Phase 4: Timeout-Based Fallback Recovery (v9.0.6-jv.8)
+
+### Problem Statement
+
+The `storeInitEpoch` method (Phase 1-3) only recovers messages orphaned from **previous worker crashes**. It doesn't handle the case where a generator fails **within the current worker lifecycle** after claiming messages.
+
+**Observed scenario:**
+1. Worker starts at T=0, `storeInitEpoch = T`
+2. Session auto-recovers and claims messages at T+1 (timestamps > storeInitEpoch)
+3. Generator fails immediately (e.g., "Claude Code process exited with code 1")
+4. Messages stuck forever - timestamps are AFTER storeInitEpoch, so not detected as orphans
+
+**Evidence (session 2937):**
+```
+10:20:00 - Worker starts
+10:20:01 - Session 2937 claims 91 messages (timestamps = 1769394001xxx)
+10:20:04 - Generator fails: "Claude Code process exited with code 1"
+10:32:xx - Messages still stuck (12+ minutes), retry_count=0
+```
+
+### Solution: Timeout + Connection Check Fallback
+
+Add a fallback recovery path for messages that:
+1. Have been in "processing" status longer than a timeout threshold (5 minutes)
+2. AND have no active connection (worker_port IS NULL in session)
+
+This prevents false positives from slow-but-active processing while catching genuinely abandoned messages.
+
+### 4.1 Add Timeout-Based Recovery Method
+
+**File**: `src/services/sqlite/PendingMessageStore.ts`
+
+```typescript
+/**
+ * Configuration for timeout-based recovery
+ */
+private readonly orphanTimeoutMs: number = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Reclaim messages that have timed out AND have no active session connection.
+ * This catches messages orphaned by generator failure within current worker lifecycle.
+ *
+ * Safeguards against false positives:
+ * 1. Timeout threshold (5 min) - allows for API latency, rate limiting
+ * 2. worker_port IS NULL - confirms no active connection
+ * 3. Retry count limit - prevents infinite loops on poison messages
+ */
+private reclaimTimedOutMessage(sessionDbId: number): PersistentPendingMessage | null {
+  const cutoffTime = Date.now() - this.orphanTimeoutMs;
+
+  while (true) {
+    // Find timed-out messages where session has no active worker connection
+    // Join with sdk_sessions to check worker_port
+    const timedOutStmt = this.db.prepare(`
+      SELECT pm.* FROM pending_messages pm
+      JOIN sdk_sessions s ON pm.session_db_id = s.id
+      WHERE pm.session_db_id = ?
+        AND pm.status = 'processing'
+        AND pm.started_processing_at_epoch < ?
+        AND pm.started_processing_at_epoch >= ?
+        AND (s.worker_port IS NULL OR s.status IN ('failed', 'completed'))
+      ORDER BY pm.id ASC
+      LIMIT 1
+    `);
+
+    const timedOut = timedOutStmt.get(
+      sessionDbId,
+      cutoffTime,           // older than timeout
+      this.storeInitEpoch   // but from current worker (not caught by Phase 1-3)
+    ) as PersistentPendingMessage | undefined;
+
+    if (!timedOut) return null;
+
+    // Check retry count - if exceeded, mark as failed
+    if (timedOut.retry_count >= this.maxRetries) {
+      logger.error('QUEUE', `TIMEOUT_FAILED | messageId=${timedOut.id} | retryCount=${timedOut.retry_count} | ageMs=${Date.now() - timedOut.started_processing_at_epoch} | reason=max_retries_exceeded`, {
+        sessionId: sessionDbId
+      });
+      this.markOrphanFailed(timedOut.id);
+      continue;
+    }
+
+    // Update timestamp and increment retry count
+    const updateStmt = this.db.prepare(`
+      UPDATE pending_messages
+      SET started_processing_at_epoch = ?, retry_count = retry_count + 1
+      WHERE id = ?
+    `);
+    updateStmt.run(Date.now(), timedOut.id);
+
+    // Fetch updated message
+    const fetchStmt = this.db.prepare(`SELECT * FROM pending_messages WHERE id = ?`);
+    const updated = fetchStmt.get(timedOut.id) as PersistentPendingMessage;
+
+    logger.info('QUEUE', `RE-CLAIM | messageId=${updated.id} | retryCount=${updated.retry_count} | ageMs=${Date.now() - timedOut.started_processing_at_epoch} | reason=timeout_recovery`, {
+      sessionId: sessionDbId
+    });
+
+    return updated;
+  }
+}
+```
+
+### 4.2 Update claim() to Include Timeout Fallback
+
+```typescript
+claim(sessionDbId: number): PersistentPendingMessage | null {
+  // STEP 1: Check for orphaned processing messages (from previous worker crash)
+  const orphanedMessage = this.reclaimOrphanedMessage(sessionDbId);
+  if (orphanedMessage) {
+    return orphanedMessage;
+  }
+
+  // STEP 2: Check for timed-out messages (from current worker, generator failed)
+  const timedOutMessage = this.reclaimTimedOutMessage(sessionDbId);
+  if (timedOutMessage) {
+    return timedOutMessage;
+  }
+
+  // STEP 3: No orphans or timeouts, claim a new pending message (existing logic)
+  // ... rest of existing claim() logic
+}
+```
+
+### 4.3 Safeguard Summary
+
+| Check | Prevents |
+|-------|----------|
+| `started_processing_at_epoch < cutoffTime` (5 min) | False positive from slow API, rate limiting |
+| `started_processing_at_epoch >= storeInitEpoch` | Overlap with Phase 1-3 recovery |
+| `worker_port IS NULL` | Reclaiming from sessions with active connections |
+| `status IN ('failed', 'completed')` | Alternative check if worker_port populated |
+| `retry_count >= maxRetries` | Infinite loop on poison messages |
+
+---
+
+## Phase 4 Testing
+
+### 4.1 Test Scenarios
+
+1. **Generator failure after claim**: Claim messages → fail generator → wait 5+ min → verify reclaim
+2. **Active session protection**: Claim messages → keep generator running → verify NOT reclaimed
+3. **Timeout threshold**: Claim messages → wait 3 min → verify NOT reclaimed (under threshold)
+4. **Combined recovery**: Mix of Phase 1-3 orphans and Phase 4 timeouts → verify correct handling
+
+---
+
 ## Files Changed
 
 | File | Change Type | Description |
 |------|-------------|-------------|
-| `src/services/sqlite/PendingMessageStore.ts` | Modify | Add `storeInitEpoch`, update `claim()`, add `reclaimOrphanedMessage()` |
+| `src/services/sqlite/PendingMessageStore.ts` | Modify | Phase 1-3: Add `storeInitEpoch`, update `claim()`, add `reclaimOrphanedMessage()` |
+| `src/services/sqlite/PendingMessageStore.ts` | Modify | Phase 4: Add `reclaimTimedOutMessage()`, update `claim()` with timeout fallback |
 
 ---
 
@@ -311,22 +465,32 @@ markProcessed(messageId: number): boolean {
 | Performance impact | Minimal - one extra SELECT that usually returns 0 rows |
 | NULL timestamp edge case | Query includes `IS NULL` check for crash between status/timestamp updates |
 | Stack overflow with many orphans | Uses iterative loop instead of recursion |
+| False positive from slow API (Phase 4) | 5 min timeout + worker_port NULL check |
+| Overlap between Phase 1-3 and Phase 4 | Phase 4 query excludes messages < storeInitEpoch |
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] Orphaned "processing" messages (from previous crash) are reclaimed on restart
-- [ ] In-flight "processing" messages (from current worker) are NOT reclaimed
-- [ ] Poison messages fail after 3 retries (don't block queue forever)
-- [ ] `retry_count` incremented on each re-claim
-- [ ] `started_processing_at_epoch` updated on re-claim
-- [ ] Logging clearly indicates re-claim vs normal claim
-- [ ] Batch mode (`claimAndDelete`) unaffected
-- [ ] SDK prefetch works correctly (no duplicate prompts)
+### Phase 1-3 (v9.0.6-jv.7)
+- [x] Orphaned "processing" messages (from previous crash) are reclaimed on restart
+- [x] In-flight "processing" messages (from current worker) are NOT reclaimed
+- [x] Poison messages fail after 3 retries (don't block queue forever)
+- [x] `retry_count` incremented on each re-claim
+- [x] `started_processing_at_epoch` updated on re-claim
+- [x] Logging clearly indicates re-claim vs normal claim
+- [x] Batch mode (`claimAndDelete`) unaffected
+- [x] SDK prefetch works correctly (no duplicate prompts)
+
+### Phase 4 (v9.0.6-jv.8)
+- [ ] Timed-out messages (>5 min) from failed generators are reclaimed
+- [ ] Active sessions (worker_port set) are NOT affected
+- [ ] Timeout recovery logs include age and reason
+- [ ] Combined with Phase 1-3 recovery (no overlap/conflict)
 
 ---
 
 ## Version Plan
 
-Target: **v9.0.6-jv.7**
+- **v9.0.6-jv.7**: Phase 1-3 (storeInitEpoch-based recovery) ✅
+- **v9.0.6-jv.8**: Phase 4 (timeout-based fallback recovery)
