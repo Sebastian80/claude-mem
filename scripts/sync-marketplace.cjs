@@ -60,12 +60,29 @@ function getPluginVersion() {
 // Normal sync for main branch or fresh install (using cp for portability)
 console.log('Syncing to marketplace...');
 try {
+  // Check if installed plugin is full repo (has src/ folder) vs plugin-only
+  const isFullRepoInstall = existsSync(path.join(INSTALLED_PATH, 'src'));
+
   // Use cp with trailing dot to include hidden files (like .mcp.json)
   // The /. syntax copies directory contents including dotfiles
   execSync(
     'cp -r plugin/. ~/.claude/plugins/marketplaces/jillvernus/',
     { stdio: 'inherit' }
   );
+
+  // For full repo installs, the root .mcp.json needs plugin/ prefix in paths
+  // because Claude Code reads from repo root, not plugin/ subfolder
+  // Note: We keep .mcp.json.disabled in source to avoid project-level MCP errors
+  if (isFullRepoInstall) {
+    const rootMcpJson = path.join(__dirname, '..', '.mcp.json.disabled');
+    if (existsSync(rootMcpJson)) {
+      execSync(
+        `cp "${rootMcpJson}" "${INSTALLED_PATH}/.mcp.json"`,
+        { stdio: 'inherit' }
+      );
+      console.log('Updated root .mcp.json for full repo install (paths prefixed with plugin/)');
+    }
+  }
 
   console.log('Running npm install in marketplace...');
   execSync(
