@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.8-jv.5`
+**Current Fork Version**: `9.0.8-jv.6`
 **Upstream Base**: `v9.0.8` (commit `bab8f554`)
 **Last Merge**: 2026-01-26
 **Recent Updates**:
+- `9.0.8-jv.6`: Stale AbortController Fix - reset aborted AbortController before starting new generator, preventing stuck pending messages
 - `9.0.8-jv.5`: Sync Script Dotfile Fix - `cp -r plugin/*` didn't copy dotfiles (`.mcp.json`), causing MCP tools to disappear after updates
 - `9.0.8-jv.4`: Provider Switch API Flood Fix - staggered session restarts + idle session cleanup timer prevents orphaned sessions
 - `9.0.8-jv.3`: Stuck Message Recovery Bugfix Phase 4 - periodic orphan recovery with configurable interval + jitter
@@ -902,26 +903,28 @@ grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/work
 
 ### Category Q: Stuck Message Recovery Bugfix (Priority 7)
 
-**Problem**: Sessions can become orphaned with pending messages that are never processed. This occurs due to 5 interacting bugs:
+**Problem**: Sessions can become orphaned with pending messages that are never processed. This occurs due to 6 interacting bugs:
 1. Stale `claude_resume_session_id` prevents recovery (SDK aborts on invalid resume ID)
 2. Session caching doesn't refresh `claudeResumeSessionId` from database
 3. Crash recovery setTimeout lacks error handling
 4. No periodic recovery for orphaned sessions
 5. Recovery uses hardcoded Claude SDK, ignoring `CLAUDE_MEM_PROVIDER`
+6. **NEW**: Stale AbortController from previous generator cleanup causes immediate iterator exit
 
-**Solution**: 4-phase implementation:
+**Solution**: 5-phase implementation:
 - **Phase 1**: Terminal error detection in SDKAgent.ts - clear stale resume ID on terminal errors
 - **Phase 2**: Refresh session state from database on cache hit
 - **Phase 3**: Add error handling to crash recovery + fix provider selection
 - **Phase 4**: Add periodic orphan recovery with configurable interval + jitter
+- **Phase 5**: Reset stale AbortController before starting new generator
 
 **Files**:
 | File | Change |
 |------|--------|
 | `src/services/worker/SDKAgent.ts` | Terminal error detection with whitelist, clear resume ID (DB + memory), transient error exclusions |
 | `src/services/worker/SessionManager.ts` | Refresh `claudeResumeSessionId` and `lastInputTokens` from DB on cache hit |
-| `src/services/worker/http/routes/SessionRoutes.ts` | Error handling in crash recovery, `recoveryInProgress` flag |
-| `src/services/worker-service.ts` | Fix provider selection in `startSessionProcessor`, add periodic recovery, add source parameter to processPendingQueues |
+| `src/services/worker/http/routes/SessionRoutes.ts` | Error handling in crash recovery, `recoveryInProgress` flag, **reset stale AbortController** |
+| `src/services/worker-service.ts` | Fix provider selection in `startSessionProcessor`, add periodic recovery, add source parameter to processPendingQueues, **reset stale AbortController** |
 | `src/shared/SettingsDefaultsManager.ts` | Add `CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED` and `CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL` settings |
 
 **Configuration** (`~/.claude-mem/settings.json`):
@@ -975,6 +978,15 @@ grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/work
   - Added `source` parameter to `processPendingQueues()` for accurate logging
   - Integrated into worker startup/shutdown lifecycle
 
+**Phase 5 Implementation** (Completed - v9.0.8-jv.6):
+- **Stale AbortController Reset** (`SessionRoutes.ts` and `worker-service.ts`):
+  - When generator exits with no pending work, `abortController.abort()` is called to kill child process
+  - Problem: New generator starts with already-aborted signal → iterator exits immediately
+  - Fix: Check if `session.abortController.signal.aborted` before starting generator
+  - If aborted, create fresh `new AbortController()` before capturing reference
+  - Added to both `startGeneratorWithProvider()` (live sessions) and `startSessionProcessor()` (periodic recovery)
+  - Logs at INFO level when stale controller is reset for diagnostics
+
 **Verification**:
 ```bash
 # Phase 1: Check terminal error handling
@@ -997,6 +1009,9 @@ grep -n 'startPeriodicRecovery' src/services/worker-service.ts
 
 # Phase 4: Check settings
 grep -n 'CLAUDE_MEM_PERIODIC_RECOVERY' src/shared/SettingsDefaultsManager.ts
+
+# Phase 5: Check stale AbortController reset
+grep -n 'Resetting stale AbortController' src/services/worker/http/routes/SessionRoutes.ts src/services/worker-service.ts
 ```
 
 **Plan**: `docs/plans/2026-01-26-stuck-message-recovery-bugfix.md`

@@ -377,6 +377,16 @@ export class WorkerService {
   ): void {
     if (!session) return;
 
+    // Reset AbortController if stale (aborted by previous generator cleanup)
+    // This prevents message iterators from immediately exiting due to stale abort signal
+    if (session.abortController.signal.aborted) {
+      logger.info('SYSTEM', `Resetting stale AbortController before generator start`, {
+        sessionId: session.sessionDbId,
+        source
+      });
+      session.abortController = new AbortController();
+    }
+
     // Use provided provider or detect from settings
     const selectedProvider = provider ?? this.getSelectedProvider();
     const sid = session.sessionDbId;

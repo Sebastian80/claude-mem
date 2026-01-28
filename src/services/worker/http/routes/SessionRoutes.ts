@@ -204,6 +204,16 @@ export class SessionRoutes extends BaseRouteHandler {
     // Store generator ID on session for .finally() race detection
     session.currentGeneratorId = generatorId;
 
+    // Reset AbortController if stale (aborted by previous generator cleanup)
+    // This prevents message iterators from immediately exiting due to stale abort signal
+    if (session.abortController.signal.aborted) {
+      logger.info('SESSION', `Resetting stale AbortController before generator start`, {
+        sessionId: session.sessionDbId,
+        generatorId
+      });
+      session.abortController = new AbortController();
+    }
+
     // Capture the AbortController used for THIS generator (immutable reference)
     const thisAbortController = session.abortController;
 
