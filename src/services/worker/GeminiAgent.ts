@@ -33,6 +33,14 @@ import {
   shouldTruncate,
   type TruncationConfig
 } from './utils/HistoryTruncation.js';
+import {
+  getBackoffDelay,
+  formatBackoffDelay,
+  sleep,
+  isRetryableError,
+  isAbortError as isBackoffAbortError,
+  MAX_RETRY_ATTEMPTS,
+} from './utils/ExponentialBackoff.js';
 
 // Gemini API endpoint (default, can be overridden via settings)
 const DEFAULT_GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -398,61 +406,119 @@ export class GeminiAgent {
     model: GeminiModel,
     rateLimitingEnabled: boolean
   ): Promise<{ content: string; tokensUsed?: number; inputTokens?: number; skipped?: boolean; skipReason?: string }> {
-    try {
-      return await this.queryGeminiMultiTurn(session.conversationHistory, apiKey, model, rateLimitingEnabled);
-    } catch (error) {
-      if (isContextOverflowError(error)) {
+    let retryCount = 0;
+    let lastError: unknown = null;
+
+    // Capture abort signal at start to avoid race with controller replacement
+    const abortSignal = session.abortController?.signal;
+
+    while (retryCount <= MAX_RETRY_ATTEMPTS) {
+      try {
+        return await this.queryGeminiMultiTurn(session.conversationHistory, apiKey, model, rateLimitingEnabled);
+      } catch (error) {
+        lastError = error;
         const errorMessage = error instanceof Error ? error.message : String(error);
 
-        // Telemetry: context overflow detected
-        logger.info('TELEMETRY', 'contextOverflowDetected', {
-          sessionId: session.sessionDbId,
-          provider: 'Gemini',
-          historyLength: session.conversationHistory.length,
-          error: errorMessage
-        });
-
-        logger.warn('TRUNCATION', 'Context overflow error, attempting aggressive truncation and retry', {
-          sessionId: session.sessionDbId,
-          error: errorMessage,
-          historyLength: session.conversationHistory.length
-        });
-
-        // Aggressive truncation: keep only pinned + current user message
-        truncateAggressively(session.conversationHistory);
-
-        try {
-          const result = await this.queryGeminiMultiTurn(session.conversationHistory, apiKey, model, rateLimitingEnabled);
-
-          // Telemetry: retry succeeded
-          logger.info('TELEMETRY', 'contextOverflowRetrySucceeded', {
+        // Handle context overflow errors with aggressive truncation (single retry)
+        if (isContextOverflowError(error)) {
+          // Telemetry: context overflow detected
+          logger.info('TELEMETRY', 'contextOverflowDetected', {
             sessionId: session.sessionDbId,
             provider: 'Gemini',
-            newHistoryLength: session.conversationHistory.length
+            historyLength: session.conversationHistory.length,
+            error: errorMessage
           });
 
-          return result;
-        } catch (retryError) {
-          const retryErrorMessage = retryError instanceof Error ? retryError.message : String(retryError);
-
-          // Telemetry: retry failed, skipping request
-          logger.info('TELEMETRY', 'contextOverflowSkipped', {
+          logger.warn('TRUNCATION', 'Context overflow error, attempting aggressive truncation and retry', {
             sessionId: session.sessionDbId,
-            provider: 'Gemini',
-            error: retryErrorMessage
+            error: errorMessage,
+            historyLength: session.conversationHistory.length
           });
 
-          logger.error('TRUNCATION', 'Retry after aggressive truncation failed, skipping request', {
-            sessionId: session.sessionDbId,
-            error: retryErrorMessage
-          });
-          // Return empty content with skipped flag and reason - caller will handle gracefully
-          return { content: '', skipped: true, skipReason: retryErrorMessage };
+          // Aggressive truncation: keep only pinned + current user message
+          truncateAggressively(session.conversationHistory);
+
+          try {
+            const result = await this.queryGeminiMultiTurn(session.conversationHistory, apiKey, model, rateLimitingEnabled);
+
+            // Telemetry: retry succeeded
+            logger.info('TELEMETRY', 'contextOverflowRetrySucceeded', {
+              sessionId: session.sessionDbId,
+              provider: 'Gemini',
+              newHistoryLength: session.conversationHistory.length
+            });
+
+            return result;
+          } catch (retryError) {
+            const retryErrorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+
+            // Telemetry: retry failed, skipping request
+            logger.info('TELEMETRY', 'contextOverflowSkipped', {
+              sessionId: session.sessionDbId,
+              provider: 'Gemini',
+              error: retryErrorMessage
+            });
+
+            logger.error('TRUNCATION', 'Retry after aggressive truncation failed, skipping request', {
+              sessionId: session.sessionDbId,
+              error: retryErrorMessage
+            });
+            // Return empty content with skipped flag and reason - caller will handle gracefully
+            return { content: '', skipped: true, skipReason: retryErrorMessage };
+          }
         }
+
+        // Handle transient API errors with exponential backoff
+        if (isRetryableError(error)) {
+          const backoffDelay = getBackoffDelay(retryCount);
+
+          logger.warn('SDK', `Gemini API error (retryable), attempt ${retryCount + 1}/${MAX_RETRY_ATTEMPTS + 1}, retrying in ${formatBackoffDelay(backoffDelay)}`, {
+            sessionId: session.sessionDbId,
+            retryCount,
+            backoffDelayMs: backoffDelay,
+            error: errorMessage
+          });
+
+          retryCount++;
+
+          if (retryCount > MAX_RETRY_ATTEMPTS) {
+            logger.error('SDK', `Gemini API failed after ${MAX_RETRY_ATTEMPTS + 1} attempts`, {
+              sessionId: session.sessionDbId,
+              totalAttempts: MAX_RETRY_ATTEMPTS + 1,
+              error: errorMessage
+            });
+            // Re-throw to trigger fallback to Claude
+            throw error;
+          }
+
+          // Wait with exponential backoff before retrying
+          // Use captured signal to allow early exit during shutdown
+          try {
+            await sleep(backoffDelay, abortSignal);
+          } catch (sleepError) {
+            // Aborted during sleep - re-throw as abort error for clean shutdown
+            // This ensures abort is handled properly instead of triggering fallback
+            logger.debug('SDK', 'Gemini retry sleep interrupted by abort', {
+              sessionId: session.sessionDbId,
+              retryCount
+            });
+            if (isBackoffAbortError(sleepError)) {
+              throw sleepError;  // Throw abort error for clean handling
+            }
+            throw error;  // Fallback to original error if not abort
+          }
+
+          // Continue to next retry attempt
+          continue;
+        }
+
+        // Non-retryable, non-context-overflow error - re-throw immediately
+        throw error;
       }
-      // Re-throw non-context-overflow errors
-      throw error;
     }
+
+    // Should not reach here, but re-throw last error just in case
+    throw lastError;
   }
 
   /**

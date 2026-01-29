@@ -62,6 +62,12 @@ export interface ActiveSession {
    * This prevents orphaned sessions from accumulating in memory.
    */
   idleCleanupTimer?: ReturnType<typeof setTimeout> | null;
+  /**
+   * Tracks consecutive crash recovery retry count.
+   * Reset to 0 on successful generator start.
+   * Used for exponential backoff logging.
+   */
+  crashRecoveryRetryCount?: number;
 }
 
 export interface PendingMessage {

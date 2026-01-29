@@ -3,28 +3,17 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.8-jv.6`
+**Current Fork Version**: `9.0.8-jv.7`
 **Upstream Base**: `v9.0.8` (commit `bab8f554`)
 **Last Merge**: 2026-01-26
 **Recent Updates**:
+- `9.0.8-jv.7`: Exponential Backoff Retry - API errors now use backoff (3s→5s→10s→30s→60s cap) instead of instant retry, preventing rate-limit blocks
 - `9.0.8-jv.6`: Stale AbortController Fix - reset aborted AbortController before starting new generator, preventing stuck pending messages
 - `9.0.8-jv.5`: Sync Script Dotfile Fix - `cp -r plugin/*` didn't copy dotfiles (`.mcp.json`), causing MCP tools to disappear after updates
 - `9.0.8-jv.4`: Provider Switch API Flood Fix - staggered session restarts + idle session cleanup timer prevents orphaned sessions
 - `9.0.8-jv.3`: Stuck Message Recovery Bugfix Phase 4 - periodic orphan recovery with configurable interval + jitter
 - `9.0.8-jv.2`: Stuck Message Recovery Bugfix Phases 1-3 - terminal error handling, session cache refresh, provider selection fix, crash recovery hardening
-- `9.0.8-jv.1`: Merged upstream v9.0.8 - **Category C (Zombie Process Cleanup) REMOVED** - upstream now uses ProcessRegistry with PID tracking, which is superior to our pgrep-based approach
-- `9.0.6-jv.8`: Timeout-Based Message Recovery - recover messages stuck from generator failures within current worker lifecycle (5 min timeout + worker_port check)
-- `9.0.6-jv.7`: Stuck Message Recovery - recover orphaned "processing" messages after worker crash using storeInitEpoch
-- `9.0.6-jv.6`: Memory Leak Fix - clear conversationHistory on Claude rollover to prevent unbounded growth
-- `9.0.6-jv.5`: Safe Message Processing - claim→process→delete pattern prevents message loss during restarts/rollover
-- `9.0.6-jv.4`: Infinite Rollover Loop Fix - reset lastInputTokens after rollover to prevent immediate re-trigger
-- `9.0.6-jv.3`: Claude Session Rollover - restart SDK sessions when context grows too large
-- `9.0.6-jv.2`: Context Truncation - prevent runaway context growth for Gemini/OpenAI providers
-- `9.0.6-jv.1`: Merged upstream v9.0.6 (Windows console popup fixes, Chroma disabled on Windows)
-- `9.0.5-jv.11`: Settings Hot-Reload - apply provider/model changes without worker restart
-- `9.0.5-jv.10`: Dynamic Model Selection - URL normalization, dynamic model fetching, OpenRouter→OpenAI rename
-- `9.0.5-jv.9`: Fixed Gemini/OpenRouter memorySessionId bug - generate UUID for non-Claude providers
-- `9.0.5-jv.8`: Fixed folder CLAUDE.md generation - disabled by default, no empty files created
+- `9.0.8-jv.1`: Merged upstream v9.0.8 - **Category C (Zombie Process Cleanup) REMOVED** - upstream now uses ProcessRegistry with PID tracking
 
 ---
 
@@ -34,7 +23,6 @@ Categories are ordered by severity (critical fixes first).
 
 | Priority | Category | Purpose | Files | Status |
 |----------|----------|---------|-------|--------|
-| ~~1~~ | ~~C: Zombie Process Cleanup~~ | ~~Memory leak fix - orphan SDK processes~~ | ~~3~~ | ✅ **UPSTREAM** (v9.0.8) |
 | 1 | P: ConversationHistory Memory Leak | Memory leak fix - clear history on rollover | 1 | Active |
 | 2 | A: Dynamic Path Resolution | Crash fix - hardcoded `thedotmack` paths | 2 | Active |
 | 3 | J: Gemini/OpenAI memorySessionId | Bugfix - non-Claude providers crash without UUID | 2 | Active |
@@ -44,7 +32,8 @@ Categories are ordered by severity (critical fixes first).
 | 7 | Q: Stuck Message Recovery Bugfix | Bugfix - terminal error handling, cache refresh, provider selection, periodic recovery | 5 | Active |
 | 8 | R: Idle Session Cleanup | Bugfix - staggered restarts + cleanup orphaned sessions after idle timeout | 3 | Active |
 | 9 | S: Sync Script Dotfile Fix | Bugfix - sync script now copies dotfiles (`.mcp.json`) | 1 | Active |
-| 10 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
+| 10 | T: Exponential Backoff Retry | Bugfix - API errors use backoff (3s→5s→10s→30s→60s) instead of instant retry | 5 | Active |
+| 11 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
 | 10 | D: MCP Schema Enhancement | MCP usability - visible tool parameters | 1 | Active |
 | 11 | H: Custom API Endpoints | Feature - configurable Gemini/OpenAI endpoints | 9 | Active |
 | 12 | K: Dynamic Model Selection | Feature - URL normalization, model fetching, OpenRouter→OpenAI | 15 | Active |
@@ -129,7 +118,6 @@ git show {commit_hash} --stat
 
 | Category | Our Patch Purpose | Upstream Fix? | Still Needed? |
 |----------|-------------------|---------------|---------------|
-| C | Zombie cleanup (pgrep/SIGTERM) | ? | ? |
 | A | Dynamic path resolution | ? | ? |
 | E | Empty search params ('_' exclusion) | ? | ? |
 | D | MCP schema visibility | ? | ? |
@@ -177,14 +165,6 @@ git merge v{new}  # Use tag, not upstream/main (may be behind tag)
 
 Run these checks to confirm patches survived the merge:
 
-#### Category C: Zombie Process Cleanup (CRITICAL)
-```bash
-grep -n 'killOrphanSubprocesses' src/services/worker/SDKAgent.ts
-grep -n 'onKillOrphanSubprocesses' src/services/worker/SessionManager.ts
-grep -n 'killOrphanSubprocesses' src/services/worker-service.ts
-```
-Expected: All 3 files should have matches.
-
 #### Category A: Dynamic Path Resolution (CRITICAL)
 ```bash
 grep -n 'getPackageRoot' src/shared/worker-utils.ts
@@ -215,9 +195,9 @@ Expected: Should show explicit property definitions, NOT empty `properties: {}`.
 
 #### Category H: Custom API Endpoints
 ```bash
-grep -n 'CLAUDE_MEM_GEMINI_BASE_URL\|CLAUDE_MEM_OPENROUTER_BASE_URL' src/shared/SettingsDefaultsManager.ts
+grep -n 'CLAUDE_MEM_GEMINI_BASE_URL\|CLAUDE_MEM_OPENAI_BASE_URL' src/shared/SettingsDefaultsManager.ts
 grep -n 'getGeminiBaseUrl' src/services/worker/GeminiAgent.ts
-grep -n 'getOpenRouterBaseUrl' src/services/worker/OpenRouterAgent.ts
+grep -n 'getOpenAIBaseUrl' src/services/worker/OpenAIAgent.ts
 grep -n 'requireLocalhost' src/services/worker/http/routes/SettingsRoutes.ts | head -5
 ```
 Expected: All 4 should have matches showing custom endpoint implementation.
@@ -275,27 +255,6 @@ git push origin main
 
 ## Category Details
 
-### Category C: Zombie Process Cleanup (Priority 1)
-
-**Problem**: `AbortController.abort()` doesn't kill SDK child processes. They accumulate over time.
-
-**Solution**: Use `pgrep` to find and `SIGTERM` orphan processes by session ID.
-
-**Files**:
-| File | Change |
-|------|--------|
-| `src/services/worker/SDKAgent.ts:495` | `killOrphanSubprocesses()` method using pgrep |
-| `src/services/worker/SessionManager.ts:25` | `onKillOrphanSubprocesses` callback |
-| `src/services/worker-service.ts:158` | Wires callback to SDKAgent |
-
-**Verification**:
-```bash
-# After some usage, should see only 1-2 SDK processes, not 5+
-ps aux | grep 'claude.*resume' | grep -v grep
-```
-
----
-
 ### Category A: Dynamic Path Resolution (Priority 2)
 
 **Problem**: Upstream hardcodes `thedotmack` marketplace path, crashes on other installations.
@@ -308,23 +267,15 @@ ps aux | grep 'claude.*resume' | grep -v grep
 | `src/shared/worker-utils.ts` | Import and use `getPackageRoot()` |
 | `src/services/infrastructure/HealthMonitor.ts` | Import and use `getPackageRoot()` |
 | `plugin/scripts/worker-cli.js` | Replace hardcoded "thedotmack" with "jillvernus" (2 locations) |
-| `plugin/scripts/smart-install.js:264` | Use `join(__dirname, 'worker-cli.js')` instead of `join(ROOT, 'plugin', 'scripts', 'worker-cli.js')` |
-| `plugin/scripts/smart-install.js:296-312` | Update alias replacement logic to UPDATE existing aliases on upgrade |
-| `src/services/worker/BranchManager.ts:14` | Replace hardcoded path with "jillvernus" |
+| `plugin/scripts/smart-install.js` | Use `__dirname` for path resolution, regex-based alias UPDATE on upgrade |
+| `src/services/worker/BranchManager.ts` | Replace hardcoded path with "jillvernus" |
 | `src/services/integrations/CursorHooksInstaller.ts` | Replace hardcoded paths (6 locations) |
 | `src/services/context/ContextBuilder.ts` | Replace hardcoded path |
-| `src/services/sync/ChromaSync.ts:105` | Replace hardcoded GitHub URL |
+| `src/services/sync/ChromaSync.ts` | Replace hardcoded GitHub URL |
 
 **Critical Notes**:
 - `worker-cli.js` is a standalone minified file (not built from TypeScript)
-- `smart-install.js` creates shell aliases during plugin installation
-- The alias MUST point to `worker-cli.js` (CLI tool), not `worker-service.cjs` (daemon)
-- **v9.0.5-jv.5**: Removed marker file check and added regex-based alias UPDATE logic
-  - Previously: skipped if alias existed, leaving old version paths
-  - Now: uses regex to find and replace existing aliases on every install/upgrade
-- **v9.0.5-jv.6**: Fixed path resolution - worker-cli.js is in `/scripts/`, NOT `/plugin/scripts/`
-  - smart-install.js runs from `/scripts/`, so `__dirname` already points to correct location
-  - Installed structure: `/scripts/worker-cli.js` exists, `/plugin/scripts/worker-cli.js` is empty
+- `smart-install.js` creates shell aliases; alias MUST point to `worker-cli.js` (CLI tool), not `worker-service.cjs` (daemon)
 
 **Verification**:
 ```bash
@@ -903,29 +854,18 @@ grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/work
 
 ### Category Q: Stuck Message Recovery Bugfix (Priority 7)
 
-**Problem**: Sessions can become orphaned with pending messages that are never processed. This occurs due to 6 interacting bugs:
-1. Stale `claude_resume_session_id` prevents recovery (SDK aborts on invalid resume ID)
-2. Session caching doesn't refresh `claudeResumeSessionId` from database
-3. Crash recovery setTimeout lacks error handling
-4. No periodic recovery for orphaned sessions
-5. Recovery uses hardcoded Claude SDK, ignoring `CLAUDE_MEM_PROVIDER`
-6. **NEW**: Stale AbortController from previous generator cleanup causes immediate iterator exit
+**Problem**: Sessions can become orphaned with pending messages that are never processed due to stale resume IDs, uncached DB state, missing error handling in crash recovery, no periodic recovery, hardcoded provider selection, and stale AbortController signals.
 
-**Solution**: 5-phase implementation:
-- **Phase 1**: Terminal error detection in SDKAgent.ts - clear stale resume ID on terminal errors
-- **Phase 2**: Refresh session state from database on cache hit
-- **Phase 3**: Add error handling to crash recovery + fix provider selection
-- **Phase 4**: Add periodic orphan recovery with configurable interval + jitter
-- **Phase 5**: Reset stale AbortController before starting new generator
+**Solution**: Comprehensive 5-phase fix addressing all root causes.
 
 **Files**:
 | File | Change |
 |------|--------|
-| `src/services/worker/SDKAgent.ts` | Terminal error detection with whitelist, clear resume ID (DB + memory), transient error exclusions |
+| `src/services/worker/SDKAgent.ts` | Terminal error detection, clear stale resume ID (DB + memory), transient error exclusions |
 | `src/services/worker/SessionManager.ts` | Refresh `claudeResumeSessionId` and `lastInputTokens` from DB on cache hit |
-| `src/services/worker/http/routes/SessionRoutes.ts` | Error handling in crash recovery, `recoveryInProgress` flag, **reset stale AbortController** |
-| `src/services/worker-service.ts` | Fix provider selection in `startSessionProcessor`, add periodic recovery, add source parameter to processPendingQueues, **reset stale AbortController** |
-| `src/shared/SettingsDefaultsManager.ts` | Add `CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED` and `CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL` settings |
+| `src/services/worker/http/routes/SessionRoutes.ts` | Crash recovery error handling, `recoveryInProgress` flag, stale AbortController reset |
+| `src/services/worker-service.ts` | Provider selection fix, periodic recovery, stale AbortController reset |
+| `src/shared/SettingsDefaultsManager.ts` | `CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED`, `CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL` |
 
 **Configuration** (`~/.claude-mem/settings.json`):
 ```json
@@ -940,77 +880,21 @@ grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/work
 | `CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED` | `"true"` | Enable periodic orphan recovery |
 | `CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL` | `"300000"` | Interval in milliseconds (5 minutes) |
 
-**Phase 1 Implementation** (Completed):
-- Terminal error patterns: "aborted by user", "invalid session id", "unknown session", "session timed out", etc.
-- Transient error patterns (word-bounded): network timeouts, rate limits, HTTP 429/502/503/504
-- Only clears resume ID when: resume was attempted + error is terminal + error is not transient + not intentional abort
-- Captures `runAbortController` before query to correctly detect intentional aborts
-
-**Phase 2 Implementation** (Completed):
-- In `initializeSession()`, when returning cached session, refreshes `claudeResumeSessionId` and `lastInputTokens` from database
-- Logs at INFO level when resume ID changes (high-signal event)
-- Logs at DEBUG level when token count changes (frequent event)
-- Ensures database fixes take effect without manual session deletion
-
-**Phase 3 Implementation** (Completed):
-- **Provider Selection Fix** (`worker-service.ts`):
-  - Added `getSelectedProvider()` helper that checks settings and provider availability
-  - Updated `startSessionProcessor()` to accept optional provider parameter
-  - Routes to correct agent: `sdkAgent.startSession()`, `geminiAgent.startSession()`, or `openAIAgent.startSession()`
-  - `processPendingQueues()` now respects `CLAUDE_MEM_PROVIDER` setting
-- **Crash Recovery Hardening** (`SessionRoutes.ts`):
-  - Wrapped setTimeout callback in async IIFE with `.catch()` to prevent unhandled promise rejections
-  - Added per-session `recoveryInProgress` flag to prevent concurrent recovery attempts
-  - Added retry logic (maxRetries=2, 500ms delay) with terminal error detection
-  - On terminal resume error: clears resume ID in both DB and memory, then retries
-  - Always clears `recoveryInProgress` in `finally` block to prevent deadlocks
-  - Graceful degradation: logs error and gives up after max retries instead of throwing
-- **Type Updates** (`worker-types.ts`):
-  - Added `recoveryInProgress?: boolean` field to `ActiveSession` interface
-
-**Phase 4 Implementation** (Completed):
-- **Periodic Recovery** (`worker-service.ts`):
-  - Added `startPeriodicRecovery()` method with configurable interval (default: 5 minutes)
-  - 0-20% additive jitter prevents thundering herd when multiple workers run
-  - Uses `processPendingQueues()` which checks both `generatorPromise` and `recoveryInProgress` flags
-  - Does NOT call `resetStuckMessages()` - that's handled by separate 5-minute timeout
-  - Minimum 1 minute floor on interval, NaN fallback to 5 minutes
-  - Added `source` parameter to `processPendingQueues()` for accurate logging
-  - Integrated into worker startup/shutdown lifecycle
-
-**Phase 5 Implementation** (Completed - v9.0.8-jv.6):
-- **Stale AbortController Reset** (`SessionRoutes.ts` and `worker-service.ts`):
-  - When generator exits with no pending work, `abortController.abort()` is called to kill child process
-  - Problem: New generator starts with already-aborted signal → iterator exits immediately
-  - Fix: Check if `session.abortController.signal.aborted` before starting generator
-  - If aborted, create fresh `new AbortController()` before capturing reference
-  - Added to both `startGeneratorWithProvider()` (live sessions) and `startSessionProcessor()` (periodic recovery)
-  - Logs at INFO level when stale controller is reset for diagnostics
+**Key Features**:
+- **Terminal error detection**: Clears stale resume ID only when resume was attempted + error is terminal + not transient + not intentional abort
+- **DB cache refresh**: Session cache hits refresh `claudeResumeSessionId` and `lastInputTokens` from database
+- **Crash recovery hardening**: Async IIFE with `.catch()`, `recoveryInProgress` mutex, retry with terminal error detection
+- **Provider selection fix**: `getSelectedProvider()` respects `CLAUDE_MEM_PROVIDER` setting (was hardcoded to Claude SDK)
+- **Periodic recovery**: Configurable interval with 0-20% jitter, minimum 1 minute floor
+- **Stale AbortController reset**: Fresh `AbortController()` before starting generator if previous signal was aborted
 
 **Verification**:
 ```bash
-# Phase 1: Check terminal error handling
 grep -n 'isTerminalResumeError\|isTransientError' src/services/worker/SDKAgent.ts
-
-# Phase 1: Check resume ID clearing
-grep -n 'RESUME_ID_CLEARED_ON_TERMINAL_ERROR' src/services/worker/SDKAgent.ts
-
-# Phase 2: Check cache refresh
 grep -n 'ROLLOVER_STATE_REFRESH' src/services/worker/SessionManager.ts
-
-# Phase 3: Check provider selection
 grep -n 'getSelectedProvider' src/services/worker-service.ts
-
-# Phase 3: Check crash recovery error handling
 grep -n 'recoveryInProgress' src/services/worker/http/routes/SessionRoutes.ts
-
-# Phase 4: Check periodic recovery
 grep -n 'startPeriodicRecovery' src/services/worker-service.ts
-
-# Phase 4: Check settings
-grep -n 'CLAUDE_MEM_PERIODIC_RECOVERY' src/shared/SettingsDefaultsManager.ts
-
-# Phase 5: Check stale AbortController reset
 grep -n 'Resetting stale AbortController' src/services/worker/http/routes/SessionRoutes.ts src/services/worker-service.ts
 ```
 
@@ -1048,6 +932,63 @@ cat ~/.claude/plugins/marketplaces/jillvernus/.mcp.json
 
 ---
 
+### Category T: Exponential Backoff Retry (Priority 10)
+
+**Problem**: When remote API servers return errors (429, 500, 502, 503, etc.), claude-mem generators immediately retry without any delay. This causes rapid-fire retry attempts (20-30 within seconds) that result in users being rate-limited or blocked by the API provider.
+
+**Solution**: Implement exponential backoff retry with configurable delays:
+- 1st retry: 3 seconds
+- 2nd retry: 5 seconds
+- 3rd retry: 10 seconds
+- 4th retry: 30 seconds
+- 5th+ retry: 60 seconds (cap)
+- Max retry attempts: 10
+
+**Files**:
+| File | Change |
+|------|--------|
+| `src/services/worker/utils/ExponentialBackoff.ts` | NEW - Shared backoff utility with `getBackoffDelay()`, `sleep()` (abort-aware), `isRetryableError()`, `isAbortError()` |
+| `src/services/worker/http/routes/SessionRoutes.ts` | Crash recovery uses 3s initial delay + exponential backoff (was 0ms + 500ms fixed) |
+| `src/services/worker/GeminiAgent.ts` | `queryWithRetry()` retries transient errors with exponential backoff |
+| `src/services/worker/OpenAIAgent.ts` | `queryWithRetry()` retries transient errors with exponential backoff |
+| `src/services/worker-types.ts` | Add `crashRecoveryRetryCount` field to `ActiveSession` |
+
+**Retryable Error Patterns**:
+- HTTP status codes: 429, 500, 502, 503, 504
+- Network errors: ECONNREFUSED, ETIMEDOUT, ECONNRESET, ENOTFOUND, EAI_AGAIN
+- Generic: "fetch failed", "network error", "service unavailable", "bad gateway", "gateway timeout"
+
+**Key Features**:
+- **Shared utility**: Consistent backoff across all providers
+- **Abort-aware sleep**: Graceful shutdown during backoff waits
+- **Captured signal**: Avoids race condition with AbortController replacement
+- **Abort error detection**: Clean shutdown instead of triggering fallback paths
+- **Structured error checks**: Inspects `status`, `statusCode`, `code` properties (not just message strings)
+- **Listener cleanup**: No memory leak from abort listeners
+
+**Codex Review Fixes**:
+1. Fixed backoff duplication (retryCount starts at 1 after initial delay)
+2. Fixed listener leak (cleanup on both resolve and abort)
+3. Fixed abort misclassification (re-throw abort error for clean shutdown)
+4. Added 504 and structured error property checks
+5. Fixed AbortController race (capture signal before loop)
+
+**Verification**:
+```bash
+# Check backoff utility exists
+ls -la src/services/worker/utils/ExponentialBackoff.ts
+
+# Check crash recovery uses backoff
+grep -n 'getBackoffDelay\|formatBackoffDelay' src/services/worker/http/routes/SessionRoutes.ts
+
+# Check agents use backoff
+grep -n 'isRetryableError' src/services/worker/GeminiAgent.ts src/services/worker/OpenAIAgent.ts
+```
+
+**Plan**: `docs/plans/exponential-backoff-retry.md`
+
+---
+
 ### Category G: Fork Configuration (Priority 10)
 
 **Purpose**: Maintain fork identity and marketplace configuration.
@@ -1076,4 +1017,3 @@ Upstream may change file locations. Example from v9.0.2:
 After marketplace install, restart worker and test:
 1. MCP search with query works (Category D)
 2. MCP empty search returns recent results (Category E)
-3. Only 1-2 SDK processes running after usage (Category C)

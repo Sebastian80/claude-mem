@@ -22,6 +22,12 @@ import { PrivacyCheckValidator } from '../../validation/PrivacyCheckValidator.js
 import { SettingsDefaultsManager } from '../../../../shared/SettingsDefaultsManager.js';
 import { getProcessBySession, ensureProcessExit } from '../../ProcessRegistry.js';
 import { USER_SETTINGS_PATH } from '../../../../shared/paths.js';
+import {
+  getBackoffDelay,
+  formatBackoffDelay,
+  sleep,
+  MAX_RETRY_ATTEMPTS,
+} from '../../utils/ExponentialBackoff.js';
 
 export class SessionRoutes extends BaseRouteHandler {
   private completionHandler: SessionCompletionHandler;
@@ -332,7 +338,14 @@ export class SessionRoutes extends BaseRouteHandler {
               session.abortController = new AbortController();
               oldController.abort();
 
-              // Small delay before restart - now with error handling and retry logic
+              // Exponential backoff delay before restart
+              // First delay: 3s, then 5s, 10s, 30s, 60s (capped)
+              const initialDelay = getBackoffDelay(0);
+              logger.info('SESSION', `Crash recovery starting with ${formatBackoffDelay(initialDelay)} delay`, {
+                sessionId: sessionDbId,
+                initialDelayMs: initialDelay
+              });
+
               setTimeout(() => {
                 // Wrap in async IIFE with .catch() to prevent unhandled promise rejection
                 (async () => {
@@ -356,21 +369,32 @@ export class SessionRoutes extends BaseRouteHandler {
 
                 // Set recoveryInProgress flag
                 stillExists.recoveryInProgress = true;
-                let retryCount = 0;
-                const maxRetries = 2;
+
+                // Capture abort signal NOW to avoid race with controller replacement during restart
+                // This ensures we can cancel backoff sleeps even if the controller is replaced
+                const recoveryAbortSignal = stillExists.abortController?.signal;
+
+                // Start retryCount at 1 since we already waited the first backoff (initialDelay)
+                // This gives us the correct sequence: 3s (initial), then on failure: 5s, 10s, 30s, 60s...
+                let retryCount = 1;
+                const maxRetries = MAX_RETRY_ATTEMPTS;
 
                 try {
                   while (retryCount <= maxRetries) {
                     try {
                       await this.startGeneratorWithProvider(stillExists, this.getSelectedProvider(), 'crash-recovery');
-                      // Success - exit retry loop
+                      // Success - reset retry count for next crash (stored on session)
+                      stillExists.crashRecoveryRetryCount = 0;
                       break;
                     } catch (error) {
                       const errorMessage = error instanceof Error ? error.message : String(error);
-                      logger.error('SESSION', `Crash recovery attempt ${retryCount + 1} failed`, {
+                      const backoffDelay = getBackoffDelay(retryCount);
+
+                      logger.error('SESSION', `Crash recovery attempt ${retryCount} failed, next retry in ${formatBackoffDelay(backoffDelay)}`, {
                         sessionId: sessionDbId,
                         retryCount,
                         maxRetries,
+                        backoffDelayMs: backoffDelay,
                         error: errorMessage
                       });
 
@@ -391,15 +415,26 @@ export class SessionRoutes extends BaseRouteHandler {
 
                       retryCount++;
                       if (retryCount > maxRetries) {
-                        logger.error('SESSION', `Crash recovery failed after ${maxRetries + 1} attempts - giving up`, {
-                          sessionId: sessionDbId
+                        logger.error('SESSION', `Crash recovery failed after ${maxRetries} attempts - giving up`, {
+                          sessionId: sessionDbId,
+                          totalAttempts: maxRetries
                         });
                         // Don't throw - just log and give up to prevent unhandled rejection
                         break;
                       }
 
-                      // Small delay before retry
-                      await new Promise(resolve => setTimeout(resolve, 500));
+                      // Exponential backoff delay before next retry
+                      // Use captured signal to allow early exit during shutdown
+                      try {
+                        await sleep(backoffDelay, recoveryAbortSignal);
+                      } catch {
+                        // Aborted during sleep - exit gracefully
+                        logger.debug('SESSION', 'Crash recovery sleep interrupted by abort', {
+                          sessionId: sessionDbId,
+                          retryCount
+                        });
+                        break;
+                      }
                     }
                   }
                 } finally {
@@ -412,7 +447,7 @@ export class SessionRoutes extends BaseRouteHandler {
                     error: error instanceof Error ? error.message : String(error)
                   });
                 });
-              }, 1000);
+              }, initialDelay);
             } else {
               // No pending work - abort to kill the child process
               logger.debug('SESSION', `DIAGNOSTIC: Calling abort() after natural completion (no pending work)`, {
