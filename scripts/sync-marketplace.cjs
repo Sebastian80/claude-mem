@@ -7,7 +7,7 @@
  */
 
 const { execSync } = require('child_process');
-const { existsSync, readFileSync } = require('fs');
+const { existsSync, readFileSync, writeFileSync } = require('fs');
 const path = require('path');
 const os = require('os');
 
@@ -109,6 +109,24 @@ try {
     `mkdir -p "${CACHE_VERSION_PATH}" && cp -r plugin/. "${CACHE_VERSION_PATH}/"`,
     { stdio: 'inherit' }
   );
+
+  // Update installed_plugins.json to point to new version
+  const installedPluginsPath = path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json');
+  if (existsSync(installedPluginsPath)) {
+    try {
+      const installedPlugins = JSON.parse(readFileSync(installedPluginsPath, 'utf-8'));
+      const claudeMemEntry = installedPlugins.plugins?.['claude-mem@jillvernus'];
+      if (claudeMemEntry && claudeMemEntry.length > 0) {
+        claudeMemEntry[0].version = version;
+        claudeMemEntry[0].installPath = CACHE_VERSION_PATH;
+        claudeMemEntry[0].lastUpdated = new Date().toISOString();
+        writeFileSync(installedPluginsPath, JSON.stringify(installedPlugins, null, 2) + '\n');
+        console.log(`Updated installed_plugins.json to version ${version}`);
+      }
+    } catch (e) {
+      console.log('\x1b[33m%s\x1b[0m', `ℹ Could not update installed_plugins.json: ${e.message}`);
+    }
+  }
 
   console.log('\x1b[32m%s\x1b[0m', 'Sync complete!');
 
