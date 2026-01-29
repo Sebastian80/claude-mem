@@ -7,7 +7,7 @@
  */
 
 const { execSync } = require('child_process');
-const { existsSync, readFileSync, writeFileSync } = require('fs');
+const { existsSync, readFileSync, writeFileSync, readdirSync, rmSync } = require('fs');
 const path = require('path');
 const os = require('os');
 
@@ -103,6 +103,22 @@ try {
   // Sync to cache folder with version
   const version = getPluginVersion();
   const CACHE_VERSION_PATH = path.join(CACHE_BASE_PATH, version);
+
+  // Clean old cache versions to prevent Claude Code from using stale versions
+  if (existsSync(CACHE_BASE_PATH)) {
+    try {
+      const cacheEntries = readdirSync(CACHE_BASE_PATH);
+      for (const entry of cacheEntries) {
+        if (entry !== version) {
+          const oldPath = path.join(CACHE_BASE_PATH, entry);
+          rmSync(oldPath, { recursive: true, force: true });
+          console.log(`Removed old cache version: ${entry}`);
+        }
+      }
+    } catch (e) {
+      console.log('\x1b[33m%s\x1b[0m', `ℹ Could not clean old cache versions: ${e.message}`);
+    }
+  }
 
   console.log(`Syncing to cache folder (version ${version})...`);
   execSync(
