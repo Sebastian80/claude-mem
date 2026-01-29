@@ -82,6 +82,16 @@ try {
       );
       console.log('Updated root .mcp.json for full repo install (paths prefixed with plugin/)');
     }
+
+    // For full repo installs, also sync the root .claude-plugin/marketplace.json
+    const rootMarketplaceJson = path.join(__dirname, '..', '.claude-plugin', 'marketplace.json');
+    if (existsSync(rootMarketplaceJson)) {
+      execSync(
+        `cp "${rootMarketplaceJson}" "${INSTALLED_PATH}/.claude-plugin/marketplace.json"`,
+        { stdio: 'inherit' }
+      );
+      console.log('Updated root .claude-plugin/marketplace.json for full repo install');
+    }
   }
 
   console.log('Running npm install in marketplace...');
