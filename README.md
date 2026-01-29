@@ -10,7 +10,7 @@ For full documentation, features, and installation instructions, please visit th
 
 This fork addresses specific stability and usability issues encountered in our environment. All patches are maintained separately to allow easy merging of upstream updates.
 
-**Current Version**: `9.0.8-jv.1` (based on upstream v9.0.8)
+**Current Version**: `9.0.12-jv.1` (based on upstream v9.0.12)
 
 ## Fork Patches
 
@@ -21,9 +21,19 @@ This fork addresses specific stability and usability issues encountered in our e
 | **Safe Message Processing** | Claim→process→delete pattern prevents message loss during worker restarts or session rollover. Messages remain in database until observations are successfully stored. |
 | **Claude Session Rollover** | Restart SDK sessions when context grows too large (default: 150k tokens). Decouples DB identity from provider session to prevent orphaned observations. |
 | **Context Truncation** | Prevents runaway context growth for Gemini/OpenAI providers. Removes duplicate history appends, adds shared truncation utility with pinned message support. |
+| **Exponential Backoff Retry** | API errors use exponential backoff (3s→5s→10s→30s→60s cap) instead of instant retry, preventing rate-limit blocks. |
+| **Stuck Message Recovery** | Terminal error handling, session cache refresh, provider selection fix, periodic orphan recovery. |
 | ~~**Zombie Process Cleanup**~~ | *(Upstreamed in v9.0.8)* SDK child processes were not properly terminated when sessions ended. Upstream now includes native `ProcessRegistry` for subprocess lifecycle management. |
 | **Dynamic Path Resolution** | Replaced hardcoded marketplace paths with dynamic resolution to prevent crashes on different installations. |
 | **Gemini/OpenAI memorySessionId** | Non-Claude providers crashed without a session ID. Now generates UUID automatically for Gemini and OpenAI-compatible providers. |
+
+### Upstream Features Adopted (v9.0.12)
+
+| Feature | Description |
+|---------|-------------|
+| **Observer Session Isolation** | Observer sessions use dedicated `cwd` to prevent polluting `claude --resume` list. |
+| **Path Format Matching** | New `path-utils.ts` module for robust folder CLAUDE.md path matching (absolute vs relative). |
+| **Empty CLAUDE.md Prevention** | Upstream now skips creating CLAUDE.md files when there's no activity (fork toggle still available). |
 
 ### Usability Improvements
 

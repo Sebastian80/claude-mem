@@ -97,6 +97,17 @@ Categories are ordered by severity (critical fixes first).
 | `.claude-plugin/marketplace.json` | | | | | | | | | | | | | | | | | | + |
 | `README.md` | | | | | | | | | | | | | + | | | | | | |
 
+### Upstream Features Adopted (v9.0.12)
+
+These features were added by upstream and adopted in this merge:
+
+| Feature | Upstream Version | Description |
+|---------|------------------|-------------|
+| Observer Session Isolation | v9.0.11/12 | Observer sessions use `cwd: OBSERVER_SESSIONS_DIR` to prevent polluting `claude --resume` |
+| Path Format Matching | v9.0.10 | New `src/shared/path-utils.ts` module for robust folder CLAUDE.md path matching |
+| Empty CLAUDE.md Prevention | v9.0.9 | Upstream skips creating CLAUDE.md files when no activity (fork toggle still available) |
+| Stale Resume ID Handling | v9.0.11 | Upstream's intent adopted via our `claudeResumeSessionId` (not `memorySessionId`) |
+
 ---
 
 ## Merge Procedure
