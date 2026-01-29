@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.8-jv.7`
-**Upstream Base**: `v9.0.8` (commit `bab8f554`)
-**Last Merge**: 2026-01-26
+**Current Fork Version**: `9.0.12-jv.1`
+**Upstream Base**: `v9.0.12` (commit `1341e93f`)
+**Last Merge**: 2026-01-29
 **Recent Updates**:
+- `9.0.12-jv.1`: Merged upstream v9.0.12 - Observer session isolation (cwd-based), path-utils.ts for folder matching. **Kept decoupled session ID approach** (memorySessionId + claudeResumeSessionId) over upstream's simpler approach
 - `9.0.8-jv.7`: Exponential Backoff Retry - API errors now use backoff (3s→5s→10s→30s→60s cap) instead of instant retry, preventing rate-limit blocks
 - `9.0.8-jv.6`: Stale AbortController Fix - reset aborted AbortController before starting new generator, preventing stuck pending messages
 - `9.0.8-jv.5`: Sync Script Dotfile Fix - `cp -r plugin/*` didn't copy dotfiles (`.mcp.json`), causing MCP tools to disappear after updates
@@ -592,6 +593,12 @@ grep -n 'truncateHistory\|queryWithRetry' src/services/worker/GeminiAgent.ts src
 
 ### Category N: Claude Session Rollover (Priority 5)
 
+> **Upstream Conflict (v9.0.11)**: Upstream Issue #817 fix sets `memorySessionId: null` on all DB loads to prevent stale resume crashes.
+> **Fork Decision**: We KEEP our decoupled approach because:
+> 1. Upstream's approach can break FK constraints when observations are stored with `memory_session_id`
+> 2. Our split (`memorySessionId` = stable DB FK, `claudeResumeSessionId` = SDK resume) preserves DB integrity
+> 3. Upstream's intent (clear stale resume ID) maps to our `claudeResumeSessionId`, not `memorySessionId`
+
 **Problem**: Claude provider experiences runaway context growth:
 1. `memory_session_id` was used for both DB foreign keys AND Claude SDK resume
 2. Restarting Claude session = new SDK session_id = FK error (orphaned observations)
@@ -773,14 +780,17 @@ sqlite3 ~/.claude-mem/claude-mem.db "SELECT COUNT(*) FROM pending_messages WHERE
 
 ### Category I: Folder CLAUDE.md Optimization (Priority 6)
 
+> **Upstream Status (v9.0.12)**: Upstream now skips empty files (v9.0.9) and has proper path matching (v9.0.10 `path-utils.ts`).
+> **Fork Addition**: We still provide the `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` toggle (default: false) to disable folder CLAUDE.md entirely.
+
 **Problem**: Upstream generates CLAUDE.md files in every folder, even those with no activity. This causes:
 - Git pollution (many auto-generated files tracked)
 - Empty placeholder files ("*No recent activity*") created everywhere
 - Performance overhead on every observation save
 
 **Solution**:
-1. Disable folder CLAUDE.md generation by default
-2. When enabled, only create files for folders with actual observations (no empty files)
+1. Disable folder CLAUDE.md generation by default (fork-only toggle)
+2. When enabled, only create files for folders with actual observations (upstream now does this too)
 
 **Files**:
 | File | Change |

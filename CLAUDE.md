@@ -114,10 +114,10 @@ No need to edit the changelog ever, it's generated automatically.
 ## Development Workflow
 
 1. Fix source code first, never directly modify the installed plugin
-2. Bump version in `package.json`, `plugin/.claude-plugin/plugin.json`, and `.claude-plugin/marketplace.json`
-3. Run `npm run build` to build the plugin
-4. Commit and push changes
-5. Install from marketplace for testing (do not use sync script for local testing)
+2. Run `npm run build-and-sync` to build and deploy locally for testing
+3. When ready to release:
+   - Bump version in `package.json`, `plugin/.claude-plugin/plugin.json`, and `.claude-plugin/marketplace.json`
+   - Commit and push changes
 
 ## Implementation Process
 

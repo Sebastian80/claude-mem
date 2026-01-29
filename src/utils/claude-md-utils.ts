@@ -6,7 +6,7 @@
  * <claude-mem-context> tags.
  */
 
-import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs';
 import path from 'path';
 import os from 'os';
 import { logger } from './logger.js';
@@ -76,8 +76,8 @@ export function replaceTaggedContent(existingContent: string, newContent: string
 
   if (startIdx !== -1 && endIdx !== -1) {
     return existingContent.substring(0, startIdx) +
-           `${startTag}\n${newContent}\n${endTag}` +
-           existingContent.substring(endIdx + endTag.length);
+      `${startTag}\n${newContent}\n${endTag}` +
+      existingContent.substring(endIdx + endTag.length);
   }
 
   // If no tags exist, append tagged content at end
@@ -86,17 +86,22 @@ export function replaceTaggedContent(existingContent: string, newContent: string
 
 /**
  * Write CLAUDE.md file to folder with atomic writes.
- * Creates directory structure if needed.
+ * Only writes to existing folders; skips non-existent paths to prevent
+ * creating spurious directory structures from malformed paths.
  *
- * @param folderPath - Absolute path to the folder
+ * @param folderPath - Absolute path to the folder (must already exist)
  * @param newContent - Content to write inside tags
  */
 export function writeClaudeMdToFolder(folderPath: string, newContent: string): void {
   const claudeMdPath = path.join(folderPath, 'CLAUDE.md');
   const tempFile = `${claudeMdPath}.tmp`;
 
-  // Ensure directory exists
-  mkdirSync(folderPath, { recursive: true });
+  // Only write to folders that already exist - never create new directories
+  // This prevents creating spurious folder structures from malformed paths
+  if (!existsSync(folderPath)) {
+    logger.debug('FOLDER_INDEX', 'Skipping non-existent folder', { folderPath });
+    return;
+  }
 
   // Read existing content if file exists
   let existingContent = '';
@@ -329,6 +334,8 @@ export async function updateFolderClaudeMdFiles(
       const formatted = formatTimelineForClaudeMd(result.content[0].text);
 
       // Skip writing if no observations (null return means no activity)
+      // Fix for #794: Don't create new CLAUDE.md files if there's no activity
+      // Our formatTimelineForClaudeMd returns null instead of generating "*No recent activity*" text
       if (formatted === null) {
         logger.debug('FOLDER_INDEX', 'No observations for folder, skipping CLAUDE.md', { folderPath });
         continue;

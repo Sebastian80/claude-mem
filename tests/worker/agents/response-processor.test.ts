@@ -88,6 +88,7 @@ describe('ResponseProcessor', () => {
         cleanupProcessed: mock(() => 0),
         resetStuckMessages: mock(() => 0),
       }),
+      decrementInFlight: mock(() => {}),
     } as unknown as SessionManager;
 
     mockBroadcast = mock(() => {});

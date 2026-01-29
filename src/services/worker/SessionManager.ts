@@ -135,6 +135,11 @@ export class SessionManager {
       memory_session_id: dbSession.memory_session_id
     });
 
+    // NOTE: Upstream Issue #817 warns about stale memory_session_id here, but our fork
+    // uses a decoupled approach: memorySessionId (stable DB FK) is kept, while
+    // claudeResumeSessionId (SDK session for --resume) is refreshed from DB rollover state.
+    // This preserves FK integrity while still allowing stale SDK sessions to be cleared.
+
     // Use currentUserPrompt if provided, otherwise fall back to database (first prompt)
     const userPrompt = currentUserPrompt || dbSession.user_prompt;
 
@@ -153,14 +158,17 @@ export class SessionManager {
     }
 
     // Create active session
-    // Load memorySessionId and claudeResumeSessionId from database if previously captured (enables resume across restarts)
-    // Also load lastInputTokens for rollover threshold checking
+    // FORK APPROACH (Category N): Decouple memorySessionId (stable DB FK) from claudeResumeSessionId (SDK session)
+    // - memorySessionId: Stable UUID for database FK relationships (observations, summaries)
+    // - claudeResumeSessionId: SDK session ID for Claude CLI resume, can be cleared/refreshed
+    // This prevents FK violations when rolling over sessions while maintaining DB integrity.
+    // Upstream's Issue #817 fix (always null) is conceptually applied to claudeResumeSessionId instead.
     const rolloverState = this.dbManager.getSessionStore().getClaudeRolloverState(sessionDbId);
     session = {
       sessionDbId,
       contentSessionId: dbSession.content_session_id,
-      memorySessionId: dbSession.memory_session_id || null,
-      claudeResumeSessionId: rolloverState?.claude_resume_session_id ?? null,
+      memorySessionId: dbSession.memory_session_id || null,  // Keep stable for FK relationships
+      claudeResumeSessionId: rolloverState?.claude_resume_session_id ?? null,  // This is the SDK session ID
       project: dbSession.project,
       userPrompt,
       pendingMessages: [],
@@ -176,10 +184,11 @@ export class SessionManager {
       currentProvider: null  // Will be set when generator starts
     };
 
-    logger.debug('SESSION', 'Creating new session object', {
+    logger.debug('SESSION', 'Creating new session object with decoupled session IDs', {
       sessionDbId,
       contentSessionId: dbSession.content_session_id,
-      memorySessionId: dbSession.memory_session_id || '(none - fresh session)',
+      memorySessionId: dbSession.memory_session_id || '(none - will capture fresh)',
+      claudeResumeSessionId: rolloverState?.claude_resume_session_id || '(none - fresh session)',
       lastPromptNumber: promptNumber || this.dbManager.getSessionStore().getPromptNumberFromUserPrompts(dbSession.content_session_id)
     });
 
