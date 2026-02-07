@@ -17,6 +17,7 @@ import { buildGeminiApiUrl } from '../../utils/url-utils.js';
 import { buildInitPrompt, buildObservationPrompt, buildSummaryPrompt, buildContinuationPrompt } from '../../sdk/prompts.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
+import { getCredential } from '../../shared/EnvManager.js';
 import type { ActiveSession, ConversationMessage } from '../worker-types.js';
 import { ModeManager } from '../domain/ModeManager.js';
 import {
@@ -594,6 +595,7 @@ export class GeminiAgent {
 
   /**
    * Get Gemini configuration from settings or environment
+   * Issue #733: Uses centralized ~/.claude-mem/.env for credentials, not random project .env files
    */
   private getGeminiConfig(): {
     apiKey: string;
@@ -603,8 +605,9 @@ export class GeminiAgent {
   } {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
 
-    // API key: check settings first, then environment variable
-    const apiKey = settings.CLAUDE_MEM_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+    // API key: check settings first, then centralized claude-mem .env (NOT process.env)
+    // This prevents Issue #733 where random project .env files could interfere
+    const apiKey = settings.CLAUDE_MEM_GEMINI_API_KEY || getCredential('GEMINI_API_KEY') || '';
 
     // Model: from settings or default
     const defaultModel: GeminiKnownModel = 'gemini-2.5-flash';
@@ -659,10 +662,11 @@ export class GeminiAgent {
 
 /**
  * Check if Gemini is available (has API key configured)
+ * Issue #733: Uses centralized ~/.claude-mem/.env, not random project .env files
  */
 export function isGeminiAvailable(): boolean {
   const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-  return !!(settings.CLAUDE_MEM_GEMINI_API_KEY || process.env.GEMINI_API_KEY);
+  return !!(settings.CLAUDE_MEM_GEMINI_API_KEY || getCredential('GEMINI_API_KEY'));
 }
 
 /**

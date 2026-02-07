@@ -17,6 +17,7 @@ import { logger } from '../../utils/logger.js';
 import { buildInitPrompt, buildObservationPrompt, buildSummaryPrompt, buildContinuationPrompt } from '../../sdk/prompts.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
+import { getCredential } from '../../shared/EnvManager.js';
 import type { ActiveSession, ConversationMessage } from '../worker-types.js';
 import { ModeManager } from '../domain/ModeManager.js';
 import {
@@ -585,8 +586,8 @@ export class OpenAIAgent {
     const settingsPath = USER_SETTINGS_PATH;
     const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-    // API key: check settings first, then environment variable
-    const apiKey = settings.CLAUDE_MEM_OPENAI_API_KEY || process.env.OPENROUTER_API_KEY || '';
+    // API key: check settings first, then centralized claude-mem .env (NOT process.env)
+    const apiKey = settings.CLAUDE_MEM_OPENAI_API_KEY || getCredential('OPENROUTER_API_KEY') || '';
 
     // Model: from settings or default
     const model = settings.CLAUDE_MEM_OPENAI_MODEL || 'xiaomi/mimo-v2-flash:free';
@@ -612,7 +613,7 @@ export class OpenAIAgent {
 export function isOpenAIAvailable(): boolean {
   const settingsPath = USER_SETTINGS_PATH;
   const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
-  return !!(settings.CLAUDE_MEM_OPENAI_API_KEY || process.env.OPENROUTER_API_KEY);
+  return !!(settings.CLAUDE_MEM_OPENAI_API_KEY || getCredential('OPENROUTER_API_KEY'));
 }
 
 /**

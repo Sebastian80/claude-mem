@@ -17,6 +17,7 @@ import { logger } from '../../utils/logger.js';
 import { buildInitPrompt, buildObservationPrompt, buildBatchObservationPrompt, buildSummaryPrompt, buildContinuationPrompt } from '../../sdk/prompts.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH, OBSERVER_SESSIONS_DIR, ensureDir } from '../../shared/paths.js';
+import { buildIsolatedEnv, getAuthMethodDescription } from '../../shared/EnvManager.js';
 import type { ActiveSession, SDKUserMessage } from '../worker-types.js';
 import { ModeManager } from '../domain/ModeManager.js';
 import { processAgentResponse, type WorkerRef } from './agents/index.js';
@@ -103,6 +104,12 @@ export class SDKAgent {
     // SDK session but we must NOT resume because the SDK context was lost.
     const hasClaudeResumeId = !!session.claudeResumeSessionId;
 
+    // Build isolated environment from ~/.claude-mem/.env
+    // This prevents Issue #733: random ANTHROPIC_API_KEY from project .env files
+    // being used instead of the configured auth method (CLI subscription or explicit API key)
+    const isolatedEnv = buildIsolatedEnv();
+    const authMethod = getAuthMethodDescription();
+
     logger.info('SDK', 'Starting SDK query', {
       sessionDbId: session.sessionDbId,
       contentSessionId: session.contentSessionId,
@@ -110,7 +117,8 @@ export class SDKAgent {
       claudeResumeSessionId: session.claudeResumeSessionId,
       hasClaudeResumeId,
       resume_parameter: hasClaudeResumeId ? session.claudeResumeSessionId : '(none - fresh start)',
-      lastPromptNumber: session.lastPromptNumber
+      lastPromptNumber: session.lastPromptNumber,
+      authMethod
     });
 
     // Debug-level alignment logs for detailed tracing
@@ -142,6 +150,7 @@ export class SDKAgent {
     // Use custom spawn to capture PIDs for zombie process cleanup (Issue #737)
     // Use dedicated cwd to isolate observer sessions from user's `claude --resume` list
     ensureDir(OBSERVER_SESSIONS_DIR);
+    // CRITICAL: Pass isolated env to prevent Issue #733 (API key pollution from project .env files)
     const queryResult = query({
       prompt: messageGenerator,
       options: {
@@ -157,7 +166,8 @@ export class SDKAgent {
         abortController: runAbortController,
         pathToClaudeCodeExecutable: claudePath,
         // Custom spawn function captures PIDs to fix zombie process accumulation
-        spawnClaudeCodeProcess: createPidCapturingSpawn(session.sessionDbId)
+        spawnClaudeCodeProcess: createPidCapturingSpawn(session.sessionDbId),
+        env: isolatedEnv  // Use isolated credentials from ~/.claude-mem/.env, not process.env
       }
     });
 

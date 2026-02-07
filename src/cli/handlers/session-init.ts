@@ -11,6 +11,7 @@ import { logger } from '../../utils/logger.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { homedir } from 'os';
 import path from 'path';
+import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 
 /**
  * Detect if a prompt is a compaction/continuation summary from Claude Code context overflow.
@@ -37,7 +38,11 @@ function isWarmupExploration(prompt: string): boolean {
 export const sessionInitHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
     // Ensure worker is running before any other logic
-    await ensureWorkerRunning();
+    const workerReady = await ensureWorkerRunning();
+    if (!workerReady) {
+      // Worker not available - skip session init gracefully
+      return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
+    }
 
     const { sessionId, cwd, prompt } = input;
 

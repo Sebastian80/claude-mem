@@ -2,6 +2,106 @@
 
 All notable changes to claude-mem.
 
+## [v9.0.16] - 2026-02-05
+
+## Bug Fixes
+
+### Fix Worker Startup Timeout (#811, #772, #729)
+
+Resolves the "Worker did not become ready within 15 seconds" timeout error that could prevent hooks from communicating with the worker service.
+
+**Root cause:** `isWorkerHealthy()` and `waitForHealth()` were checking `/api/readiness`, which returns 503 until full initialization completes — including MCP connection setup that can take 5+ minutes. Hooks only have a 15-second timeout window.
+
+**Fix:** Switched to `/api/health` (liveness check), which returns 200 as soon as the HTTP server is listening. This is sufficient for hook communication since the worker accepts requests while background initialization continues.
+
+**Files changed:**
+- `src/shared/worker-utils.ts` — `isWorkerHealthy()` now checks `/api/health`
+- `src/services/infrastructure/HealthMonitor.ts` — `waitForHealth()` now checks `/api/health`
+- `tests/infrastructure/health-monitor.test.ts` — Updated test expectations
+
+### PR Merge Tasks
+- PR #820 merged with full verification pipeline (rebase, code review, build verification, test, manual verification)
+
+## [v9.0.15] - 2026-02-05
+
+## Security Fix
+
+### Isolated Credentials (#745)
+- **Prevents API key hijacking** from random project `.env` files
+- Credentials now sourced exclusively from `~/.claude-mem/.env`
+- Only whitelisted environment variables passed to SDK `query()` calls
+- Authentication method logging shows whether using Claude Code CLI subscription billing or explicit API key
+
+This is a security-focused patch release that hardens credential handling to prevent unintended API key usage from project directories.
+
+## [v9.0.14] - 2026-02-05
+
+## In-Process Worker Architecture
+
+This release includes the merged in-process worker architecture from PR #722, which fundamentally improves how hooks interact with the worker service.
+
+### Changes
+
+- **In-process worker architecture** - Hook processes now become the worker when port 37777 is available, eliminating Windows spawn issues
+- **Hook command improvements** - Added `skipExit` option to `hook-command.ts` for chained command execution
+- **Worker health checks** - `worker-utils.ts` now returns boolean status for cleaner health monitoring
+- **Massive CLAUDE.md cleanup** - Removed 76 redundant documentation files (4,493 lines removed)
+- **Chained hook configuration** - `hooks.json` now supports chained commands for complex workflows
+
+### Technical Details
+
+The in-process architecture means hooks no longer need to spawn separate worker processes. When port 37777 is available, the hook itself becomes the worker, providing:
+- Faster startup times
+- Better resource utilization
+- Elimination of process spawn failures on Windows
+
+Full PR: https://github.com/thedotmack/claude-mem/pull/722
+
+## [v9.0.13] - 2026-02-05
+
+## Bug Fixes
+
+### Zombie Observer Prevention (#856)
+
+Fixed a critical issue where observer processes could become "zombies" - lingering indefinitely without activity. This release adds:
+
+- **3-minute idle timeout**: SessionQueueProcessor now automatically terminates after 3 minutes of inactivity
+- **Race condition fix**: Resolved spurious wakeup issues by resetting `lastActivityTime` on queue activity
+- **Comprehensive test coverage**: Added 11 new tests for the idle timeout mechanism
+
+This fix prevents resource leaks from orphaned observer processes that could accumulate over time.
+
+## [v9.0.12] - 2026-01-28
+
+## Fix: Authentication failure from observer session isolation
+
+**Critical bugfix** for users who upgraded to v9.0.11.
+
+### Problem
+
+v9.0.11 introduced observer session isolation using `CLAUDE_CONFIG_DIR` override, which inadvertently broke authentication:
+
+```
+Invalid API key · Please run /login
+```
+
+This happened because Claude Code stores credentials in the config directory, and overriding it prevented access to existing auth tokens.
+
+### Solution
+
+Observer sessions now use the SDK's `cwd` option instead:
+- Sessions stored under `~/.claude-mem/observer-sessions/` project
+- Auth credentials in `~/.claude/` remain accessible
+- Observer sessions still won't pollute `claude --resume` lists
+
+### Affected Users
+
+Anyone running v9.0.11 who saw "Invalid API key" errors should upgrade immediately.
+
+---
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
 ## [v9.0.11] - 2026-01-28
 
 ## Bug Fixes
@@ -1250,82 +1350,4 @@ Patch release v7.4.2
 - Added path alias script
 - Fixed Windows worker stop/restart reliability (#395)
 - Simplified build commands section in CLAUDE.md
-
-## [v7.4.1] - 2025-12-19
-
-## Bug Fixes
-
-- **MCP Server**: Redirect logs to stderr to preserve JSON-RPC protocol (#396)
-  - MCP uses stdio transport where stdout is reserved for JSON-RPC messages
-  - Console.log was writing startup logs to stdout, causing Claude Desktop to parse log lines as JSON and fail
-
-## [v7.4.0] - 2025-12-18
-
-## What's New
-
-### MCP Tool Token Reduction
-
-Optimized MCP tool definitions for reduced token consumption in Claude Code sessions through progressive parameter disclosure.
-
-**Changes:**
-- Streamlined MCP tool schemas with minimal inline definitions
-- Added `get_schema()` tool for on-demand parameter documentation
-- Enhanced worker API with operation-based instruction loading
-
-This release improves session efficiency by reducing the token overhead of MCP tool definitions while maintaining full functionality through progressive disclosure.
-
----
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-## [v7.3.9] - 2025-12-18
-
-## Fixes
-
-- Fix MCP server compatibility and web UI path resolution
-
-This patch release addresses compatibility issues with the MCP server and resolves path resolution problems in the web UI.
-
-## [v7.3.8] - 2025-12-18
-
-## Security Fix
-
-Added localhost-only protection for admin endpoints to prevent DoS attacks when worker service is bound to 0.0.0.0 for remote UI access.
-
-### Changes
-- Created `requireLocalhost` middleware to restrict admin endpoints
-- Applied to `/api/admin/restart` and `/api/admin/shutdown`
-- Returns 403 Forbidden for non-localhost requests
-
-### Security Impact
-Prevents unauthorized shutdown/restart of worker service when exposed on network.
-
-Fixes security concern raised in #368.
-
-## [v7.3.7] - 2025-12-17
-
-## Windows Platform Stabilization
-
-This patch release includes comprehensive improvements for Windows platform stability and reliability.
-
-### Key Improvements
-
-- **Worker Readiness Tracking**: Added `/api/readiness` endpoint with MCP/SDK initialization flags to prevent premature connection attempts
-- **Process Tree Cleanup**: Implemented recursive process enumeration on Windows to prevent zombie socket processes  
-- **Bun Runtime Migration**: Migrated worker wrapper from Node.js to Bun for consistency and reliability
-- **Centralized Project Name Utility**: Consolidated duplicate project name extraction logic with Windows drive root handling
-- **Enhanced Error Messages**: Added platform-aware logging and detailed Windows troubleshooting guidance
-- **Subprocess Console Hiding**: Standardized `windowsHide: true` across all child process spawns to prevent console window flashing
-
-### Technical Details
-
-- Worker service tracks MCP and SDK readiness states separately
-- ChromaSync service properly tracks subprocess PIDs for Windows cleanup
-- Worker wrapper uses Bun runtime with enhanced socket cleanup via process tree enumeration
-- Increased timeouts on Windows platform (30s worker startup, 10s hook timeouts)
-- Logger utility includes platform and PID information for better debugging
-
-This represents a major reliability improvement for Windows users, eliminating common issues with worker startup failures, orphaned processes, and zombie sockets.
-
-**Full Changelog**: https://github.com/thedotmack/claude-mem/compare/v7.3.6...v7.3.7
 

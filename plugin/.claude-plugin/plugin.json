@@ -1,6 +1,6 @@
 {
   "name": "claude-mem",
-  "version": "9.0.12-jv.1",
+  "version": "9.0.17-jv.1",
   "description": "Persistent memory system for Claude Code - seamlessly preserve context across sessions",
   "author": {
     "name": "JillVernus (fork of thedotmack/claude-mem)"

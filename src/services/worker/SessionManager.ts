@@ -518,7 +518,15 @@ export class SessionManager {
 
     try {
       // Use safe iterator - messages stay in DB with status='processing' until marked complete
-      for await (const message of processor.createIterator(sessionDbId, session.abortController.signal, shouldStop)) {
+      for await (const message of processor.createIterator(
+        sessionDbId,
+        session.abortController.signal,
+        shouldStop,
+        () => {
+          logger.info('SESSION', 'Triggering abort due to idle timeout to kill subprocess', { sessionDbId });
+          session.abortController.abort();
+        }
+      )) {
         // Track earliest timestamp for accurate observation timestamps
         // This ensures backlog messages get their original timestamps, not current time
         if (session.earliestPendingTimestamp === null) {

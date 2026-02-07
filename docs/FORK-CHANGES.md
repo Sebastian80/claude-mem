@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.12-jv.1`
-**Upstream Base**: `v9.0.12` (commit `1341e93f`)
-**Last Merge**: 2026-01-29
+**Current Fork Version**: `9.0.17-jv.1`
+**Upstream Base**: `v9.0.17` (commit `ebed5667`)
+**Last Merge**: 2026-02-07
 **Recent Updates**:
+- `9.0.17-jv.1`: Merged upstream v9.0.17 (v9.0.13-9.0.17 features: zombie observer idle-timeout, in-process hook architecture, isolated credentials, `/api/health` startup checks, bun-runner install hardening). Added fork guard to clear stale `pendingRestart` during recovery/manual starts to prevent pending queue starvation.
 - `9.0.12-jv.1`: Merged upstream v9.0.12 - Observer session isolation (cwd-based), path-utils.ts for folder matching. **Kept decoupled session ID approach** (memorySessionId + claudeResumeSessionId) over upstream's simpler approach
 - `9.0.8-jv.7`: Exponential Backoff Retry - API errors now use backoff (3s→5s→10s→30s→60s cap) instead of instant retry, preventing rate-limit blocks
 - `9.0.8-jv.6`: Stale AbortController Fix - reset aborted AbortController before starting new generator, preventing stuck pending messages
@@ -31,7 +32,7 @@ Categories are ordered by severity (critical fixes first).
 | 5 | N: Claude Session Rollover | Bugfix - restart SDK sessions when context grows too large | 6 | Active |
 | 6 | O: Safe Message Processing | Bugfix - claim→process→delete prevents message loss + orphan recovery + timeout recovery | 8 | Active |
 | 7 | Q: Stuck Message Recovery Bugfix | Bugfix - terminal error handling, cache refresh, provider selection, periodic recovery | 5 | Active |
-| 8 | R: Idle Session Cleanup | Bugfix - staggered restarts + cleanup orphaned sessions after idle timeout | 3 | Active |
+| 8 | R: Idle Session Cleanup | Bugfix - upstream idle-timeout + fork staggered restarts + orphan cleanup | 3 | Partial Upstream + Active Fork |
 | 9 | S: Sync Script Dotfile Fix | Bugfix - sync script now copies dotfiles (`.mcp.json`) | 1 | Active |
 | 10 | T: Exponential Backoff Retry | Bugfix - API errors use backoff (3s→5s→10s→30s→60s) instead of instant retry | 5 | Active |
 | 11 | E: Empty Search Params Fix | MCP usability - empty search returns results | 2 | Active |
@@ -39,7 +40,7 @@ Categories are ordered by severity (critical fixes first).
 | 11 | H: Custom API Endpoints | Feature - configurable Gemini/OpenAI endpoints | 9 | Active |
 | 12 | K: Dynamic Model Selection | Feature - URL normalization, model fetching, OpenRouter→OpenAI | 15 | Active |
 | 13 | L: Settings Hot-Reload | Feature - apply settings changes without worker restart | 7 | Active |
-| 14 | I: Folder CLAUDE.md Optimization | Fix - disable by default, no empty files | 3 | Active |
+| 14 | I: Folder CLAUDE.md Optimization | Fix - upstream no-empty-files + fork disable-by-default toggle | 3 | Partial Upstream + Active Fork |
 | 15 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
 | 16 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
 | 17 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
@@ -97,7 +98,7 @@ Categories are ordered by severity (critical fixes first).
 | `.claude-plugin/marketplace.json` | | | | | | | | | | | | | | | | | | + |
 | `README.md` | | | | | | | | | | | | | + | | | | | | |
 
-### Upstream Features Adopted (v9.0.12)
+### Upstream Features Adopted (v9.0.12-v9.0.17)
 
 These features were added by upstream and adopted in this merge:
 
@@ -107,6 +108,11 @@ These features were added by upstream and adopted in this merge:
 | Path Format Matching | v9.0.10 | New `src/shared/path-utils.ts` module for robust folder CLAUDE.md path matching |
 | Empty CLAUDE.md Prevention | v9.0.9 | Upstream skips creating CLAUDE.md files when no activity (fork toggle still available) |
 | Stale Resume ID Handling | v9.0.11 | Upstream's intent adopted via our `claudeResumeSessionId` (not `memorySessionId`) |
+| Zombie Observer Prevention | v9.0.13 | Session queue idle timeout prevents observer generators from lingering indefinitely |
+| In-Process Hook Worker | v9.0.14 | Hook flow can host worker in-process instead of spawn-only startup flow |
+| Isolated Credentials | v9.0.15 | Provider credentials loaded from `~/.claude-mem/.env` instead of random project env leakage |
+| Worker Startup Health Fix | v9.0.16 | Hook startup checks use `/api/health` liveness endpoint (not `/api/readiness`) |
+| Bun Detection Hardening | v9.0.17 | Added bun-runner resolution path for fresh installations without PATH Bun setup |
 
 ---
 
@@ -885,7 +891,7 @@ grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/work
 | `src/services/worker/SDKAgent.ts` | Terminal error detection, clear stale resume ID (DB + memory), transient error exclusions |
 | `src/services/worker/SessionManager.ts` | Refresh `claudeResumeSessionId` and `lastInputTokens` from DB on cache hit |
 | `src/services/worker/http/routes/SessionRoutes.ts` | Crash recovery error handling, `recoveryInProgress` flag, stale AbortController reset |
-| `src/services/worker-service.ts` | Provider selection fix, periodic recovery, stale AbortController reset |
+| `src/services/worker-service.ts` | Provider selection fix, periodic recovery, stale AbortController reset, stale `pendingRestart` clear during recovery/manual starts |
 | `src/shared/SettingsDefaultsManager.ts` | `CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED`, `CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL` |
 
 **Configuration** (`~/.claude-mem/settings.json`):
@@ -908,6 +914,7 @@ grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/work
 - **Provider selection fix**: `getSelectedProvider()` respects `CLAUDE_MEM_PROVIDER` setting (was hardcoded to Claude SDK)
 - **Periodic recovery**: Configurable interval with 0-20% jitter, minimum 1 minute floor
 - **Stale AbortController reset**: Fresh `AbortController()` before starting generator if previous signal was aborted
+- **Stale pending-restart guard**: Recovery/manual starts clear stale `pendingRestart` before generator boot, preventing stop-before-claim queue starvation
 
 **Verification**:
 ```bash
