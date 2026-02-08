@@ -8,6 +8,23 @@ import { getPackageRoot } from "./paths.js";
 // Named constants for health checks
 const HEALTH_CHECK_TIMEOUT_MS = getTimeout(HOOK_TIMEOUTS.HEALTH_CHECK);
 
+/**
+ * Windows-safe timeout wrapper for fetch.
+ * Uses Promise.race behavior via setTimeout without AbortSignal cleanup.
+ */
+export function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs: number): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(
+      () => reject(new Error(`Request timed out after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+    fetch(url, init).then(
+      response => { clearTimeout(timeoutId); resolve(response); },
+      err => { clearTimeout(timeoutId); reject(err); }
+    );
+  });
+}
+
 // Cache to avoid repeated settings file reads
 let cachedPort: number | null = null;
 let cachedHost: string | null = null;
@@ -63,8 +80,11 @@ export function clearPortCache(): void {
  */
 async function isWorkerHealthy(): Promise<boolean> {
   const port = getWorkerPort();
-  // Note: Removed AbortSignal.timeout to avoid Windows Bun cleanup issue (libuv assertion)
-  const response = await fetch(`http://127.0.0.1:${port}/api/health`);
+  const response = await fetchWithTimeout(
+    `http://127.0.0.1:${port}/api/health`,
+    {},
+    HEALTH_CHECK_TIMEOUT_MS
+  );
   return response.ok;
 }
 
@@ -82,8 +102,11 @@ function getPluginVersion(): string {
  */
 async function getWorkerVersion(): Promise<string> {
   const port = getWorkerPort();
-  // Note: Removed AbortSignal.timeout to avoid Windows Bun cleanup issue (libuv assertion)
-  const response = await fetch(`http://127.0.0.1:${port}/api/version`);
+  const response = await fetchWithTimeout(
+    `http://127.0.0.1:${port}/api/version`,
+    {},
+    HEALTH_CHECK_TIMEOUT_MS
+  );
   if (!response.ok) {
     throw new Error(`Failed to get worker version: ${response.status}`);
   }

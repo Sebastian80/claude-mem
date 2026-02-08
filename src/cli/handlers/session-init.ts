@@ -9,9 +9,9 @@ import { ensureWorkerRunning, getWorkerPort } from '../../shared/worker-utils.js
 import { getProjectName } from '../../utils/project-name.js';
 import { logger } from '../../utils/logger.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
-import { homedir } from 'os';
-import path from 'path';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
+import { isProjectExcluded } from '../../utils/project-filter.js';
+import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 
 /**
  * Detect if a prompt is a compaction/continuation summary from Claude Code context overflow.
@@ -44,11 +44,18 @@ export const sessionInitHandler: EventHandler = {
       return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
     }
 
-    const { sessionId, cwd, prompt } = input;
+    const { sessionId, cwd, prompt: rawPrompt } = input;
 
-    if (!prompt) {
-      throw new Error('sessionInitHandler requires prompt');
+    // Check if project is excluded from tracking
+    const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+    if (cwd && isProjectExcluded(cwd, settings.CLAUDE_MEM_EXCLUDED_PROJECTS)) {
+      logger.info('HOOK', 'Project excluded from tracking', { cwd });
+      return { continue: true, suppressOutput: true };
     }
+
+    // Handle image-only prompts (where text prompt is empty/undefined)
+    // Use placeholder so sessions still get created and tracked for memory
+    const prompt = (!rawPrompt || !rawPrompt.trim()) ? '[media prompt]' : rawPrompt;
 
     const project = getProjectName(cwd);
     const port = getWorkerPort();
@@ -68,7 +75,9 @@ export const sessionInitHandler: EventHandler = {
     });
 
     if (!initResponse.ok) {
-      throw new Error(`Session initialization failed: ${initResponse.status}`);
+      // Log but don't throw - a worker 500 should not block the user's prompt
+      logger.failure('HOOK', `Session initialization failed: ${initResponse.status}`, { contentSessionId: sessionId, project });
+      return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
     }
 
     const initResult = await initResponse.json() as {
@@ -97,8 +106,6 @@ export const sessionInitHandler: EventHandler = {
     // These contain narrative descriptions that can trigger autonomous SDK behavior
     // Skip SDK processing entirely - the summary describes work, not a request to observe
     // Can be disabled via CLAUDE_MEM_FILTER_COMPACTION_PROMPTS setting
-    const settingsPath = path.join(homedir(), '.claude-mem', 'settings.json');
-    const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
     const filterEnabled = settings.CLAUDE_MEM_FILTER_COMPACTION_PROMPTS === 'true';
 
     if (filterEnabled && isCompactionSummary(prompt)) {
@@ -135,7 +142,8 @@ export const sessionInitHandler: EventHandler = {
       });
 
       if (!response.ok) {
-        throw new Error(`SDK agent start failed: ${response.status}`);
+        // Log but don't throw - SDK agent failure should not block the user's prompt
+        logger.failure('HOOK', `SDK agent start failed: ${response.status}`, { sessionDbId, promptNumber });
       }
     } else if (input.platform === 'cursor') {
       logger.debug('HOOK', 'session-init: Skipping SDK agent init for Cursor platform', { sessionDbId, promptNumber });

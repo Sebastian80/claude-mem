@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.0.17-jv.1`
-**Upstream Base**: `v9.0.17` (commit `ebed5667`)
-**Last Merge**: 2026-02-07
+**Current Fork Version**: `9.1.1-jv.1`
+**Upstream Base**: `v9.1.1` (commit `5969d670`)
+**Last Merge**: 2026-02-08
 **Recent Updates**:
+- `9.1.1-jv.1`: Merged upstream v9.1.1. Marked Category I (Folder CLAUDE.md optimization) and Category J (stateless provider memorySessionId generation) as **upstream fixed**; kept fork-only categories that are still not addressed upstream.
 - `9.0.17-jv.1`: Merged upstream v9.0.17 (v9.0.13-9.0.17 features: zombie observer idle-timeout, in-process hook architecture, isolated credentials, `/api/health` startup checks, bun-runner install hardening). Added fork guard to clear stale `pendingRestart` during recovery/manual starts to prevent pending queue starvation.
 - `9.0.12-jv.1`: Merged upstream v9.0.12 - Observer session isolation (cwd-based), path-utils.ts for folder matching. **Kept decoupled session ID approach** (memorySessionId + claudeResumeSessionId) over upstream's simpler approach
 - `9.0.8-jv.7`: Exponential Backoff Retry - API errors now use backoff (3s→5s→10s→30s→60s cap) instead of instant retry, preventing rate-limit blocks
@@ -27,7 +28,7 @@ Categories are ordered by severity (critical fixes first).
 |----------|----------|---------|-------|--------|
 | 1 | P: ConversationHistory Memory Leak | Memory leak fix - clear history on rollover | 1 | Active |
 | 2 | A: Dynamic Path Resolution | Crash fix - hardcoded `thedotmack` paths | 2 | Active |
-| 3 | J: Gemini/OpenAI memorySessionId | Bugfix - non-Claude providers crash without UUID | 2 | Active |
+| 3 | J: Gemini/OpenAI memorySessionId | Bugfix - non-Claude providers crash without UUID | 2 | Upstream Fixed (v9.1.1) |
 | 4 | M: Context Truncation | Bugfix - prevent runaway context growth for Gemini/OpenAI | 8 | Active |
 | 5 | N: Claude Session Rollover | Bugfix - restart SDK sessions when context grows too large | 6 | Active |
 | 6 | O: Safe Message Processing | Bugfix - claim→process→delete prevents message loss + orphan recovery + timeout recovery | 8 | Active |
@@ -40,7 +41,7 @@ Categories are ordered by severity (critical fixes first).
 | 11 | H: Custom API Endpoints | Feature - configurable Gemini/OpenAI endpoints | 9 | Active |
 | 12 | K: Dynamic Model Selection | Feature - URL normalization, model fetching, OpenRouter→OpenAI | 15 | Active |
 | 13 | L: Settings Hot-Reload | Feature - apply settings changes without worker restart | 7 | Active |
-| 14 | I: Folder CLAUDE.md Optimization | Fix - upstream no-empty-files + fork disable-by-default toggle | 3 | Partial Upstream + Active Fork |
+| 14 | I: Folder CLAUDE.md Optimization | Fix - folder toggle + exclusion controls | 3 | Upstream Fixed (v9.1.1) |
 | 15 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
 | 16 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
 | 17 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
@@ -797,84 +798,39 @@ sqlite3 ~/.claude-mem/claude-mem.db "SELECT COUNT(*) FROM pending_messages WHERE
 
 ### Category I: Folder CLAUDE.md Optimization (Priority 6)
 
-> **Upstream Status (v9.0.12)**: Upstream now skips empty files (v9.0.9) and has proper path matching (v9.0.10 `path-utils.ts`).
-> **Fork Addition**: We still provide the `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` toggle (default: false) to disable folder CLAUDE.md entirely.
+> **Upstream Status (v9.1.1)**: **Fixed upstream and expanded**.
+> Upstream now includes:
+> - `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` toggle (default off)
+> - project-level exclusions (`CLAUDE_MEM_EXCLUDED_PROJECTS`)
+> - folder-level exclusions (`CLAUDE_MEM_FOLDER_MD_EXCLUDE`)
 
-**Problem**: Upstream generates CLAUDE.md files in every folder, even those with no activity. This causes:
-- Git pollution (many auto-generated files tracked)
-- Empty placeholder files ("*No recent activity*") created everywhere
-- Performance overhead on every observation save
-
-**Solution**:
-1. Disable folder CLAUDE.md generation by default (fork-only toggle)
-2. When enabled, only create files for folders with actual observations (upstream now does this too)
-
-**Files**:
-| File | Change |
-|------|--------|
-| `src/shared/SettingsDefaultsManager.ts` | Add `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` setting (default: false) |
-| `src/utils/claude-md-utils.ts` | Check setting before generating; return null for empty content |
-| `src/services/worker/agents/ResponseProcessor.ts` | Import SettingsDefaultsManager |
-
-**Configuration** (`~/.claude-mem/settings.json`):
-```json
-{
-  "CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED": "true"
-}
-```
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` | `"false"` | Enable folder-level CLAUDE.md generation |
-
-**Behavior**:
-- **Disabled (default)**: No folder CLAUDE.md files are created or updated
-- **Enabled**: Only creates CLAUDE.md for folders with actual observations (no empty files)
+**Fork Decision**:
+- Marked as **Upstream Fixed (v9.1.1)**
+- Do **not** maintain separate fork-only Category I logic going forward
+- Keep only normal integration work when upstream evolves this area
 
 **Verification**:
 ```bash
-# Check setting is respected
-grep -n 'CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED' src/utils/claude-md-utils.ts
-
-# Confirm no empty files are created (when enabled)
-find . -name "CLAUDE.md" -exec grep -l "No recent activity" {} \;  # Should return nothing new
+grep -n 'CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED\|CLAUDE_MEM_EXCLUDED_PROJECTS\|CLAUDE_MEM_FOLDER_MD_EXCLUDE' src/shared/SettingsDefaultsManager.ts
+grep -n 'CLAUDE_MEM_FOLDER_MD_EXCLUDE' src/utils/claude-md-utils.ts
 ```
 
 ---
 
 ### Category J: Gemini/OpenAI memorySessionId Fix (Priority 3)
 
-**Problem**: Non-Claude providers (Gemini, OpenAI-compatible) crash with "Cannot store observations: memorySessionId not yet captured" when starting fresh sessions. The ResponseProcessor requires memorySessionId to store observations, but only Claude SDK captures it from its response. Gemini/OpenAI never set it, causing crashes and silent fallback to Claude SDK.
+> **Upstream Status (v9.1.1)**: **Fixed upstream** (`711f5455`).
+> Upstream now generates synthetic `memorySessionId` for stateless providers on startup.
 
-**Solution**: Generate a UUID for memorySessionId at the start of session processing if it's not already set, and save it to the database.
-
-**Files**:
-| File | Change |
-|------|--------|
-| `src/services/worker/GeminiAgent.ts:137-144` | Generate UUID if memorySessionId is null, save to database |
-| `src/services/worker/OpenAIAgent.ts:96-103` | Generate UUID if memorySessionId is null, save to database |
-
-**Code Added** (both files):
-```typescript
-// CRITICAL: Ensure memorySessionId is set for non-Claude providers
-// Claude SDK captures this from its response, but Gemini/OpenAI need to generate it
-if (!session.memorySessionId) {
-  const generatedId = crypto.randomUUID();
-  session.memorySessionId = generatedId;
-  this.dbManager.getSessionStore().updateMemorySessionId(session.sessionDbId, generatedId);
-  logger.info('SDK', `Generated memorySessionId for ${provider} session | sessionDbId=${session.sessionDbId} | memorySessionId=${generatedId}`, {
-    sessionId: session.sessionDbId
-  });
-}
-```
+**Fork Decision**:
+- Marked as **Upstream Fixed (v9.1.1)**
+- Do **not** maintain separate fork-only Category J patch logic
+- Keep only compatibility adaptations for fork provider naming (`openai` vs legacy `openrouter`)
 
 **Verification**:
 ```bash
-# Check fix is in place
-grep -n 'crypto.randomUUID' src/services/worker/GeminiAgent.ts src/services/worker/OpenAIAgent.ts
-
-# After worker restart, new Gemini sessions should show:
-# [SDK] Generated memorySessionId for Gemini session | sessionDbId=X | memorySessionId=UUID
+grep -n 'memorySessionId' src/services/worker/GeminiAgent.ts
+grep -n 'memorySessionId' src/services/worker/OpenAIAgent.ts
 ```
 
 ---

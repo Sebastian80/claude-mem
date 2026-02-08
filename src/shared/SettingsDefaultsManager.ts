@@ -77,6 +77,9 @@ export interface SettingsDefaults {
   CLAUDE_MEM_FILTER_COMPACTION_PROMPTS: string;  // 'true' | 'false' - filter compaction/warmup prompts from SDK
   // Folder CLAUDE.md Generation
   CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED: string;  // 'true' | 'false' - enable folder-level CLAUDE.md generation
+  // Exclusion Settings (upstream v9.1.x)
+  CLAUDE_MEM_EXCLUDED_PROJECTS: string;  // Comma-separated glob patterns for excluded project paths
+  CLAUDE_MEM_FOLDER_MD_EXCLUDE: string;  // JSON array of folder paths excluded from folder CLAUDE.md generation
   // Periodic Recovery Configuration
   CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED: string;   // 'true' | 'false' - enable periodic orphan recovery
   CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL: string;  // interval in milliseconds (default: 300000 = 5 minutes)
@@ -143,6 +146,9 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_FILTER_COMPACTION_PROMPTS: 'true',  // On by default - filter compaction/warmup prompts
     // Folder CLAUDE.md Generation
     CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED: 'false',   // Off by default - only create CLAUDE.md for folders with activity
+    // Exclusion Settings (upstream v9.1.x)
+    CLAUDE_MEM_EXCLUDED_PROJECTS: '',              // Comma-separated glob patterns for excluded project paths
+    CLAUDE_MEM_FOLDER_MD_EXCLUDE: '[]',            // JSON array of folder paths excluded from folder CLAUDE.md generation
     // Periodic Recovery Configuration
     CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED: 'true',  // On by default - auto-recover orphaned sessions
     CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL: '300000',  // 5 minutes in milliseconds
@@ -174,8 +180,22 @@ export class SettingsDefaultsManager {
    * Get a boolean default value
    */
   static getBool(key: keyof SettingsDefaults): boolean {
-    const value = this.get(key);
-    return value === 'true';
+    const value = this.get(key) as string | boolean;
+    return value === 'true' || value === true;
+  }
+
+  /**
+   * Apply environment variable overrides to settings.
+   * Priority: process.env > settings file > defaults
+   */
+  private static applyEnvOverrides(settings: SettingsDefaults): SettingsDefaults {
+    const result = { ...settings };
+    for (const key of Object.keys(this.DEFAULTS) as Array<keyof SettingsDefaults>) {
+      if (process.env[key] !== undefined) {
+        result[key] = process.env[key] as string;
+      }
+    }
+    return result;
   }
 
   /**
@@ -198,7 +218,7 @@ export class SettingsDefaultsManager {
         } catch (error) {
           console.warn('[SETTINGS] Failed to create settings file, using in-memory defaults:', settingsPath, error);
         }
-        return defaults;
+        return this.applyEnvOverrides(defaults);
       }
 
       const settingsData = readFileSync(settingsPath, 'utf-8');
@@ -272,10 +292,10 @@ export class SettingsDefaultsManager {
         }
       }
 
-      return result;
+      return this.applyEnvOverrides(result);
     } catch (error) {
       console.warn('[SETTINGS] Failed to load settings, using defaults:', settingsPath, error);
-      return this.getAllDefaults();
+      return this.applyEnvOverrides(this.getAllDefaults());
     }
   }
 }

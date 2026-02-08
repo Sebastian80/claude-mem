@@ -181,7 +181,9 @@ export class SessionManager {
       lastInputTokens: rolloverState?.last_input_tokens ?? undefined,
       earliestPendingTimestamp: null,
       conversationHistory: [],  // Initialize empty - will be populated by agents
-      currentProvider: null  // Will be set when generator starts
+      currentProvider: null,  // Will be set when generator starts
+      consecutiveRestarts: 0,  // Track consecutive restart attempts to prevent infinite loops
+      processingMessageIds: []  // CLAIM-CONFIRM: Track message IDs for confirmProcessed()
     };
 
     logger.debug('SESSION', 'Creating new session object with decoupled session IDs', {
@@ -419,6 +421,28 @@ export class SessionManager {
 
     const emitter = this.sessionQueues.get(sessionDbId);
     emitter?.emit('message');
+  }
+
+  /**
+   * Remove session from in-memory maps and notify without awaiting generator.
+   * Used when SDK resume fails and we give up (no fallback): avoids deadlock
+   * from deleteSession() awaiting the same generator promise we're inside.
+   */
+  removeSessionImmediate(sessionDbId: number): void {
+    const session = this.sessions.get(sessionDbId);
+    if (!session) return;
+
+    this.sessions.delete(sessionDbId);
+    this.sessionQueues.delete(sessionDbId);
+
+    logger.info('SESSION', 'Session removed (orphaned after SDK termination)', {
+      sessionId: sessionDbId,
+      project: session.project
+    });
+
+    if (this.onSessionDeletedCallback) {
+      this.onSessionDeletedCallback();
+    }
   }
 
   /**

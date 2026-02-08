@@ -10,7 +10,7 @@ For full documentation, features, and installation instructions, please visit th
 
 This fork addresses specific stability and usability issues encountered in our environment. All patches are maintained separately to allow easy merging of upstream updates.
 
-**Current Version**: `9.0.17-jv.1` (based on upstream v9.0.17)
+**Current Version**: `9.1.1-jv.1` (based on upstream v9.1.1)
 
 ## Fork Patches
 
@@ -26,9 +26,9 @@ This fork addresses specific stability and usability issues encountered in our e
 | **Pending Queue Recovery Guard** | Clears stale `pendingRestart` during recovery/manual starts so generators do not stop before claiming queued messages. |
 | ~~**Zombie Process Cleanup**~~ | *(Upstreamed in v9.0.8)* SDK child processes were not properly terminated when sessions ended. Upstream now includes native `ProcessRegistry` for subprocess lifecycle management. |
 | **Dynamic Path Resolution** | Replaced hardcoded marketplace paths with dynamic resolution to prevent crashes on different installations. |
-| **Gemini/OpenAI memorySessionId** | Non-Claude providers crashed without a session ID. Now generates UUID automatically for Gemini and OpenAI-compatible providers. |
+| ~~**Gemini/OpenAI memorySessionId**~~ | *(Upstreamed in v9.1.1)* Upstream now generates synthetic IDs for stateless providers. Fork keeps OpenAI-compatible provider mapping and compatibility migration. |
 
-### Upstream Features Adopted (v9.0.12-v9.0.17)
+### Upstream Features Adopted (v9.0.12-v9.1.1)
 
 | Feature | Description |
 |---------|-------------|
@@ -40,6 +40,8 @@ This fork addresses specific stability and usability issues encountered in our e
 | **Isolated Credentials** | Upstream reads credentials from `~/.claude-mem/.env` to avoid project env credential hijacking. |
 | **Startup Health Check Fix** | Upstream switched startup checks to `/api/health` liveness endpoint. |
 | **Bun Runner Detection** | Upstream added bun-runner fallback for fresh installs where Bun is not in PATH. |
+| **Stateless memorySessionId Generation** | Upstream now generates synthetic memory IDs for Gemini/OpenRouter on startup. |
+| **Folder CLAUDE.md Exclusions** | Upstream added project and folder exclusion settings for folder CLAUDE.md generation. |
 
 ### Usability Improvements
 
@@ -50,7 +52,7 @@ This fork addresses specific stability and usability issues encountered in our e
 | **Custom API Endpoints** | Configure custom base URLs for Gemini and OpenAI-compatible providers (proxies, self-hosted, regional endpoints). |
 | **Dynamic Model Selection** | Fetch available models from your configured API endpoint. UI shows dropdown of available models. |
 | **Settings Hot-Reload** | Change provider/model settings without restarting the worker. Settings apply automatically when the generator becomes idle. |
-| **Folder CLAUDE.md Optimization** | Disabled by default. When enabled, only creates files for folders with actual observations (no empty placeholders). |
+| ~~**Folder CLAUDE.md Optimization**~~ | *(Upstreamed in v9.1.1)* Upstream now ships `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` plus project/folder exclusion controls. |
 
 ### Optional Features (On Hold)
 
@@ -114,7 +116,7 @@ export OPENAI_BASE_URL="https://my-gateway.com/v1/chat/completions"
 ## Version Format
 
 Fork versions follow the format `{upstream}-jv.{patch}`:
-- `9.0.17-jv.1` = Based on upstream v9.0.17, fork patch version 1
+- `9.1.1-jv.1` = Based on upstream v9.1.1, fork patch version 1
 
 ---
 
