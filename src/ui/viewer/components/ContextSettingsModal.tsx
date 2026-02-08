@@ -499,56 +499,98 @@ export function ContextSettingsModal({
                       : "Gemini model used for generating observations"
                     }
                   >
-                    {/* Show dropdown if we have fetched models and user hasn't chosen custom input */}
-                    {hasGeminiCustomUrl && geminiModels.length > 0 && !useCustomGeminiModel ? (
-                      <div className="model-select-wrapper">
-                        <select
-                          value={formState.CLAUDE_MEM_GEMINI_MODEL || ''}
-                          onChange={(e) => updateSetting('CLAUDE_MEM_GEMINI_MODEL', e.target.value)}
-                        >
-                          {geminiModels.map(model => (
-                            <option key={model} value={model}>{model}</option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          className="text-btn"
-                          onClick={() => setUseCustomGeminiModel(true)}
-                          title="Enter a custom model name"
-                        >
-                          Custom
-                        </button>
-                      </div>
-                    ) : hasGeminiCustomUrl ? (
-                      /* Text input for custom endpoints (fallback or user preference) */
-                      <div className="model-input-wrapper">
-                        <input
-                          type="text"
-                          value={formState.CLAUDE_MEM_GEMINI_MODEL || ''}
-                          onChange={(e) => updateSetting('CLAUDE_MEM_GEMINI_MODEL', e.target.value)}
-                          placeholder="Enter model name..."
-                        />
-                        {geminiModels.length > 0 && (
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: hasGeminiCustomUrl ? '1fr auto' : '1fr',
+                      gap: '8px',
+                      alignItems: 'center'
+                    }}>
+                      {/* Show dropdown if we have fetched models and user hasn't chosen custom input */}
+                      {hasGeminiCustomUrl && geminiModels.length > 0 && !useCustomGeminiModel ? (
+                        <div className="model-select-wrapper">
+                          <select
+                            value={formState.CLAUDE_MEM_GEMINI_MODEL || ''}
+                            onChange={(e) => updateSetting('CLAUDE_MEM_GEMINI_MODEL', e.target.value)}
+                          >
+                            {geminiModels.map(model => (
+                              <option key={model} value={model}>{model}</option>
+                            ))}
+                          </select>
                           <button
                             type="button"
                             className="text-btn"
-                            onClick={() => setUseCustomGeminiModel(false)}
-                            title="Select from fetched models"
+                            onClick={() => setUseCustomGeminiModel(true)}
+                            title="Enter a custom model name"
                           >
-                            List
+                            Custom
                           </button>
+                        </div>
+                      ) : hasGeminiCustomUrl ? (
+                        /* Text input for custom endpoints (fallback or user preference) */
+                        <div className="model-input-wrapper">
+                          <input
+                            type="text"
+                            value={formState.CLAUDE_MEM_GEMINI_MODEL || ''}
+                            onChange={(e) => updateSetting('CLAUDE_MEM_GEMINI_MODEL', e.target.value)}
+                            placeholder="Enter model name..."
+                          />
+                          {geminiModels.length > 0 && (
+                            <button
+                              type="button"
+                              className="text-btn"
+                              onClick={() => setUseCustomGeminiModel(false)}
+                              title="Select from fetched models"
+                            >
+                              List
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        /* Default dropdown for official Gemini endpoint */
+                        <select
+                          value={formState.CLAUDE_MEM_GEMINI_MODEL || 'gemini-2.5-flash-lite'}
+                          onChange={(e) => updateSetting('CLAUDE_MEM_GEMINI_MODEL', e.target.value)}
+                        >
+                          <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (10 RPM free)</option>
+                          <option value="gemini-2.5-flash">gemini-2.5-flash (5 RPM free)</option>
+                          <option value="gemini-3-flash">gemini-3-flash (5 RPM free)</option>
+                        </select>
+                      )}
+
+                      {/* Fetch Models button (Gemini + custom URL) */}
+                      {hasGeminiCustomUrl && (
+                        <button
+                          type="button"
+                          className="fetch-models-btn"
+                          onClick={fetchGeminiModels}
+                          disabled={isFetchingGeminiModels || hasUnsavedGeminiChanges}
+                          title={hasUnsavedGeminiChanges ? 'Save settings first to fetch models' : undefined}
+                          style={{ whiteSpace: 'nowrap' }}
+                        >
+                          {isFetchingGeminiModels ? 'Fetching...' : 'Fetch Models'}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Fetch status */}
+                    {hasGeminiCustomUrl && (
+                      <div className="fetch-models-row" style={{ marginTop: '6px' }}>
+                        {hasUnsavedGeminiChanges && (
+                          <span className="fetch-warning">
+                            Save first
+                          </span>
+                        )}
+                        {!hasUnsavedGeminiChanges && geminiModelsError && (
+                          <span className="fetch-error" title={geminiModelsError}>
+                            {geminiModelsError}
+                          </span>
+                        )}
+                        {!hasUnsavedGeminiChanges && !geminiModelsError && geminiModels.length > 0 && (
+                          <span className="fetch-success">
+                            {geminiModels.length} models found
+                          </span>
                         )}
                       </div>
-                    ) : (
-                      /* Default dropdown for official Gemini endpoint */
-                      <select
-                        value={formState.CLAUDE_MEM_GEMINI_MODEL || 'gemini-2.5-flash-lite'}
-                        onChange={(e) => updateSetting('CLAUDE_MEM_GEMINI_MODEL', e.target.value)}
-                      >
-                        <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (10 RPM free)</option>
-                        <option value="gemini-2.5-flash">gemini-2.5-flash (5 RPM free)</option>
-                        <option value="gemini-3-flash">gemini-3-flash (5 RPM free)</option>
-                      </select>
                     )}
                   </FormField>
                   <div className="toggle-group" style={{ marginTop: '8px' }}>
@@ -571,35 +613,6 @@ export function ContextSettingsModal({
                       placeholder="https://your-proxy.com/ or http://localhost:3000/"
                     />
                   </FormField>
-                  {/* Fetch Models button - only visible when custom base URL is set */}
-                  {hasGeminiCustomUrl && (
-                    <div className="fetch-models-row">
-                      <button
-                        type="button"
-                        className="fetch-models-btn"
-                        onClick={fetchGeminiModels}
-                        disabled={isFetchingGeminiModels || hasUnsavedGeminiChanges}
-                        title={hasUnsavedGeminiChanges ? 'Save settings first to fetch models' : undefined}
-                      >
-                        {isFetchingGeminiModels ? 'Fetching...' : 'Fetch Models'}
-                      </button>
-                      {hasUnsavedGeminiChanges && (
-                        <span className="fetch-warning">
-                          Save first
-                        </span>
-                      )}
-                      {!hasUnsavedGeminiChanges && geminiModelsError && (
-                        <span className="fetch-error" title={geminiModelsError}>
-                          {geminiModelsError}
-                        </span>
-                      )}
-                      {!hasUnsavedGeminiChanges && !geminiModelsError && geminiModels.length > 0 && (
-                        <span className="fetch-success">
-                          {geminiModels.length} models found
-                        </span>
-                      )}
-                    </div>
-                  )}
                 </>
               )}
 
