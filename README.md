@@ -10,7 +10,7 @@ For full documentation, features, and installation instructions, please visit th
 
 This fork addresses specific stability and usability issues encountered in our environment. All patches are maintained separately to allow easy merging of upstream updates.
 
-**Current Version**: `9.1.1-jv.1` (based on upstream v9.1.1)
+**Current Version**: `9.1.1-jv.2` (based on upstream v9.1.1)
 
 ## Fork Patches
 
@@ -116,7 +116,7 @@ export OPENAI_BASE_URL="https://my-gateway.com/v1/chat/completions"
 ## Version Format
 
 Fork versions follow the format `{upstream}-jv.{patch}`:
-- `9.1.1-jv.1` = Based on upstream v9.1.1, fork patch version 1
+- `9.1.1-jv.2` = Based on upstream v9.1.1, fork patch version 2
 
 ---
 

@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.1.1-jv.1`
+**Current Fork Version**: `9.1.1-jv.2`
 **Upstream Base**: `v9.1.1` (commit `5969d670`)
 **Last Merge**: 2026-02-08
 **Recent Updates**:
+- `9.1.1-jv.2`: UI enhancement - moved Gemini "Fetch Models" button next to the Gemini model field in Advanced settings.
 - `9.1.1-jv.1`: Merged upstream v9.1.1. Marked Category I (Folder CLAUDE.md optimization) and Category J (stateless provider memorySessionId generation) as **upstream fixed**; kept fork-only categories that are still not addressed upstream.
 - `9.0.17-jv.1`: Merged upstream v9.0.17 (v9.0.13-9.0.17 features: zombie observer idle-timeout, in-process hook architecture, isolated credentials, `/api/health` startup checks, bun-runner install hardening). Added fork guard to clear stale `pendingRestart` during recovery/manual starts to prevent pending queue starvation.
 - `9.0.12-jv.1`: Merged upstream v9.0.12 - Observer session isolation (cwd-based), path-utils.ts for folder matching. **Kept decoupled session ID approach** (memorySessionId + claudeResumeSessionId) over upstream's simpler approach
