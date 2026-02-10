@@ -62,43 +62,51 @@ console.log('Syncing to marketplace...');
 try {
   // Check if installed plugin is full repo (has src/ folder) vs plugin-only
   const isFullRepoInstall = existsSync(path.join(INSTALLED_PATH, 'src'));
+  const repoRoot = path.resolve(__dirname, '..');
+  const isSameDir = path.resolve(INSTALLED_PATH) === repoRoot;
 
-  // Use cp with trailing dot to include hidden files (like .mcp.json)
-  // The /. syntax copies directory contents including dotfiles
-  execSync(
-    'cp -r plugin/. ~/.claude/plugins/marketplaces/sebastian80/',
-    { stdio: 'inherit' }
-  );
+  if (isSameDir) {
+    // When dev repo IS the marketplace install, skip copying plugin/ to root
+    // (that would dump built artifacts into the source tree)
+    console.log('Dev repo is marketplace install — skipping plugin-to-marketplace copy');
+  } else {
+    // Use cp with trailing dot to include hidden files (like .mcp.json)
+    // The /. syntax copies directory contents including dotfiles
+    execSync(
+      `cp -r plugin/. "${INSTALLED_PATH}/"`,
+      { stdio: 'inherit' }
+    );
 
-  // For full repo installs, the root .mcp.json needs plugin/ prefix in paths
-  // because Claude Code reads from repo root, not plugin/ subfolder
-  // Note: We keep .mcp.json.disabled in source to avoid project-level MCP errors
-  if (isFullRepoInstall) {
-    const rootMcpJson = path.join(__dirname, '..', '.mcp.json.disabled');
-    if (existsSync(rootMcpJson)) {
-      execSync(
-        `cp "${rootMcpJson}" "${INSTALLED_PATH}/.mcp.json"`,
-        { stdio: 'inherit' }
-      );
-      console.log('Updated root .mcp.json for full repo install (paths prefixed with plugin/)');
+    // For full repo installs, the root .mcp.json needs plugin/ prefix in paths
+    // because Claude Code reads from repo root, not plugin/ subfolder
+    // Note: We keep .mcp.json.disabled in source to avoid project-level MCP errors
+    if (isFullRepoInstall) {
+      const rootMcpJson = path.join(__dirname, '..', '.mcp.json.disabled');
+      if (existsSync(rootMcpJson)) {
+        execSync(
+          `cp "${rootMcpJson}" "${INSTALLED_PATH}/.mcp.json"`,
+          { stdio: 'inherit' }
+        );
+        console.log('Updated root .mcp.json for full repo install (paths prefixed with plugin/)');
+      }
+
+      const rootMarketplaceJson = path.resolve(__dirname, '..', '.claude-plugin', 'marketplace.json');
+      const destMarketplaceJson = path.resolve(INSTALLED_PATH, '.claude-plugin', 'marketplace.json');
+      if (rootMarketplaceJson !== destMarketplaceJson && existsSync(rootMarketplaceJson)) {
+        execSync(
+          `cp "${rootMarketplaceJson}" "${destMarketplaceJson}"`,
+          { stdio: 'inherit' }
+        );
+        console.log('Updated root .claude-plugin/marketplace.json for full repo install');
+      }
     }
 
-    // For full repo installs, also sync the root .claude-plugin/marketplace.json
-    const rootMarketplaceJson = path.join(__dirname, '..', '.claude-plugin', 'marketplace.json');
-    if (existsSync(rootMarketplaceJson)) {
-      execSync(
-        `cp "${rootMarketplaceJson}" "${INSTALLED_PATH}/.claude-plugin/marketplace.json"`,
-        { stdio: 'inherit' }
-      );
-      console.log('Updated root .claude-plugin/marketplace.json for full repo install');
-    }
+    console.log('Running npm install in marketplace...');
+    execSync(
+      `cd "${INSTALLED_PATH}" && npm install`,
+      { stdio: 'inherit' }
+    );
   }
-
-  console.log('Running npm install in marketplace...');
-  execSync(
-    'cd ~/.claude/plugins/marketplaces/sebastian80/ && npm install',
-    { stdio: 'inherit' }
-  );
 
   // Sync to cache folder with version
   const version = getPluginVersion();
