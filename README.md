@@ -24,16 +24,11 @@ For full upstream documentation: **[docs.claude-mem.ai](https://docs.claude-mem.
 
 ## Why This Fork?
 
-Upstream claude-mem is a great idea with rough edges in production. After running it daily, we hit enough reliability issues to warrant maintaining patches:
+Upstream claude-mem has reliability issues in production: message loss during worker restarts, unbounded context growth crashing sessions, instant API retry floods causing rate limiting, hardcoded paths breaking non-default installations, and invisible MCP tool parameters.
 
-- **Messages silently lost** during worker restarts — observations vanish because the queue doesn't survive crashes
-- **Unbounded context growth** causes sessions to blow up — no truncation for Gemini/OpenAI, and Claude sessions grow until the model hits its limit
-- **API errors trigger rapid-fire retries** — instant retry loops get you rate-limited or blocked by providers
-- **Hardcoded paths crash non-default installations** — upstream assumes `thedotmack` marketplace paths
-- **MCP tool parameters invisible to Claude** — empty schema definitions mean Claude can't see what parameters are available
-- **No way to use custom API endpoints** — can't point at proxies, local LLMs, or regional gateways
+[JillVernus](https://github.com/JillVernus/claude-mem) built a comprehensive set of fixes for all of the above, plus usability features like custom API endpoints, dynamic model selection, and settings hot-reload. Some of these issues have since been fixed independently upstream.
 
-This fork carries all the reliability and usability patches originally developed by [JillVernus](https://github.com/JillVernus/claude-mem), plus cherry-picked upstream fixes that hadn't been merged yet. Several JillVernus fixes have been contributed back upstream. All patches are maintained as discrete changes to allow clean merging of upstream releases.
+This fork builds on JillVernus's work and adds cherry-picked upstream fixes that JillVernus hadn't merged yet. See [All Fork Patches](#all-fork-patches) below for the full list.
 
 ---
 
@@ -63,13 +58,15 @@ This is a fork of [JillVernus/claude-mem](https://github.com/JillVernus/claude-m
 | **Pending Queue Recovery Guard** | Stale `pendingRestart` flag starves message queue after recovery | Clear stale flag during recovery/manual starts before generator boot |
 | **Dynamic Path Resolution** | Hardcoded `thedotmack` paths crash on any other installation | Dynamic path resolution via `getPackageRoot()` across all file references |
 
-### Upstreamed Fixes (no longer fork-only)
+### Fixed Independently Upstream
 
-| Patch | Upstreamed In |
-|-------|---------------|
-| ~~Zombie Process Cleanup~~ | v9.0.8 — upstream `ProcessRegistry` with PID tracking |
-| ~~Gemini/OpenAI memorySessionId~~ | v9.1.1 — upstream generates synthetic IDs for stateless providers |
-| ~~Folder CLAUDE.md Optimization~~ | v9.1.1 — upstream `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` + exclusion controls |
+These issues were also fixed upstream, so the fork patches are no longer needed:
+
+| Patch | Upstream Fix |
+|-------|-------------|
+| ~~Zombie Process Cleanup~~ | v9.0.8 — `ProcessRegistry` with PID tracking |
+| ~~Gemini/OpenAI memorySessionId~~ | v9.1.1 — synthetic IDs for stateless providers |
+| ~~Folder CLAUDE.md Optimization~~ | v9.1.1 — `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` + exclusion controls |
 
 ### Usability Improvements
 
@@ -88,46 +85,6 @@ This is a fork of [JillVernus/claude-mem](https://github.com/JillVernus/claude-m
 |-------|-------------|
 | **Observation Batching** | Batch multiple observations into single API calls for cost reduction |
 | **Autonomous Execution Prevention** | Detect and skip compaction/warmup prompts that might trigger unintended behavior |
-
----
-
-## OpenAI-Compatible Provider
-
-The "OpenRouter" provider has been renamed to "OpenAI Compatible" to better reflect its capabilities. This provider supports any OpenAI-compatible API endpoint, including:
-
-- **OpenRouter** (default) - Access to many models
-- **Local LLMs** - Ollama, LM Studio, vLLM, etc.
-- **Custom endpoints** - Any OpenAI-compatible API
-
-### Settings Migration
-
-Settings are automatically migrated on first run. The following keys have been renamed:
-
-| Old Key | New Key |
-|---------|---------|
-| `CLAUDE_MEM_OPENROUTER_API_KEY` | `CLAUDE_MEM_OPENAI_API_KEY` |
-| `CLAUDE_MEM_OPENROUTER_MODEL` | `CLAUDE_MEM_OPENAI_MODEL` |
-| `CLAUDE_MEM_OPENROUTER_BASE_URL` | `CLAUDE_MEM_OPENAI_BASE_URL` |
-| `CLAUDE_MEM_PROVIDER=openrouter` | `CLAUDE_MEM_PROVIDER=openai` |
-
----
-
-## Custom API Endpoints
-
-Configure custom base URLs in `~/.claude-mem/settings.json`:
-
-```json
-{
-  "CLAUDE_MEM_GEMINI_BASE_URL": "https://my-proxy.com/v1beta/models",
-  "CLAUDE_MEM_OPENAI_BASE_URL": "https://my-gateway.com/v1/chat/completions"
-}
-```
-
-Or via environment variables:
-```bash
-export GEMINI_BASE_URL="https://my-proxy.com/v1beta/models"
-export OPENAI_BASE_URL="https://my-gateway.com/v1/chat/completions"
-```
 
 ---
 
