@@ -39,14 +39,13 @@ This fork carries all the reliability and usability patches originally developed
 
 ## Fork History
 
-The stability patches in this fork were developed by **JillVernus** over versions `9.0.8-jv.1` through `9.1.1-jv.2`. Sebastian80 continues maintaining the fork starting with `9.1.1-ser.1`.
+This is a fork of [JillVernus/claude-mem](https://github.com/JillVernus/claude-mem), which is itself a fork of [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem). All the stability and usability patches (versions `9.0.8-jv.1` through `9.1.1-jv.2`) were developed by JillVernus. JillVernus's fork continues independently.
 
-### What Changed in ser.1
+### What Sebastian80 adds (ser.1)
 
-- **Fork transfer**: Migrated repository from `jillvernus/claude-mem` to `sebastian80/claude-mem`
-- **Marketplace path migration**: Updated all hardcoded marketplace paths across 7 source files
+- **Cherry-picked upstream fixes**: `save_memory` MCP tool endpoint and `sessions/complete` API route that JillVernus hadn't picked up yet
+- **Marketplace path fixes**: Updated hardcoded `jillvernus` marketplace paths to `sebastian80` across source files and sync scripts
 - **Sync script self-detection**: Enhanced `sync-marketplace.cjs` to skip self-copy when dev repo is the marketplace directory
-- **Cherry-picked upstream fixes**: `save_memory` MCP tool endpoint and `sessions/complete` API route that upstream had added but the JillVernus fork hadn't merged yet
 
 ---
 
