@@ -4,7 +4,7 @@ Claude-mem is a Claude Code plugin providing persistent memory across sessions. 
 
 ## Fork Information
 
-This is the **JillVernus fork** of claude-mem (upstream: thedotmack/claude-mem).
+This is the **Sebastian80 fork** of claude-mem (upstream: thedotmack/claude-mem).
 
 **IMPORTANT**: Before making changes, read `docs/FORK-CHANGES.md` which documents:
 - All differences between this fork and upstream
@@ -55,7 +55,7 @@ Settings are managed in `~/.claude-mem/settings.json`. The file is auto-created 
 
 - **Source**: `<project-root>/src/`
 - **Built Plugin**: `<project-root>/plugin/`
-- **Installed Plugin**: `~/.claude/plugins/marketplaces/jillvernus/`
+- **Installed Plugin**: `~/.claude/plugins/marketplaces/sebastian80/`
 - **Database**: `~/.claude-mem/claude-mem.db`
 - **Chroma**: `~/.claude-mem/chroma/`
 

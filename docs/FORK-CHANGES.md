@@ -1,12 +1,13 @@
-# JillVernus Fork Merge Guide
+# Sebastian80 Fork Merge Guide
 
-This document is a step-by-step guide for merging upstream releases into the JillVernus fork.
+This document is a step-by-step guide for merging upstream releases into the Sebastian80 fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.1.1-jv.2`
+**Current Fork Version**: `9.1.1-ser.1`
 **Upstream Base**: `v9.1.1` (commit `5969d670`)
 **Last Merge**: 2026-02-08
 **Recent Updates**:
+- `9.1.1-ser.1`: Fork transfer from jillvernus to sebastian80. Migrated all hardcoded marketplace paths (7 files), enhanced sync script self-detection, cherry-picked upstream `save_memory` and `sessions/complete` fixes.
 - `9.1.1-jv.2`: UI enhancement - moved Gemini "Fetch Models" button next to the Gemini model field in Advanced settings.
 - `9.1.1-jv.1`: Merged upstream v9.1.1. Marked Category I (Folder CLAUDE.md optimization) and Category J (stateless provider memorySessionId generation) as **upstream fixed**; kept fork-only categories that are still not addressed upstream.
 - `9.0.17-jv.1`: Merged upstream v9.0.17 (v9.0.13-9.0.17 features: zombie observer idle-timeout, in-process hook architecture, isolated credentials, `/api/health` startup checks, bun-runner install hardening). Added fork guard to clear stale `pendingRestart` during recovery/manual starts to prevent pending queue starvation.
@@ -196,7 +197,7 @@ Expected: First two have matches, third returns nothing.
 #### Category S: Sync Script Dotfile Fix
 ```bash
 grep -n 'cp -r plugin/\\.' scripts/sync-marketplace.cjs
-cat ~/.claude/plugins/marketplaces/jillvernus/.mcp.json  # Should have mcpServers.mcp-search configured
+cat ~/.claude/plugins/marketplaces/sebastian80/.mcp.json  # Should have mcpServers.mcp-search configured
 ```
 Expected: `cp -r plugin/.` syntax (copies dotfiles), and .mcp.json should have proper MCP config.
 
@@ -239,7 +240,7 @@ Expected: Detection patterns in session-init.ts, extended disallowedTools in SDK
 
 ### Step 6: Update Version
 
-Bump version in all 4 files (e.g., `9.0.2-jv.2` → `9.0.3-jv.1`):
+Bump version in all 4 files (e.g., `9.1.1-ser.1` → `9.2.0-ser.1`):
 - `package.json`
 - `plugin/package.json`
 - `plugin/.claude-plugin/plugin.json`
@@ -267,7 +268,7 @@ ps aux | grep 'claude.*resume' | grep -v grep | wc -l
 
 ```bash
 git add -A
-git commit -m "Merge upstream vX.X.X with fork patches (X.X.X-jv.Y)"
+git commit -m "Merge upstream vX.X.X with fork patches (X.X.X-ser.Y)"
 git push origin main
 ```
 
@@ -286,10 +287,10 @@ git push origin main
 |------|--------|
 | `src/shared/worker-utils.ts` | Import and use `getPackageRoot()` |
 | `src/services/infrastructure/HealthMonitor.ts` | Import and use `getPackageRoot()` |
-| `plugin/scripts/worker-cli.js` | Replace hardcoded "thedotmack" with "jillvernus" (2 locations) |
+| `plugin/scripts/worker-cli.js` | Replace hardcoded "thedotmack" with "sebastian80" (2 locations) |
 | `plugin/scripts/smart-install.js` | Use `__dirname` for path resolution, regex-based alias UPDATE on upgrade |
-| `src/services/worker/BranchManager.ts` | Replace hardcoded path with "jillvernus" |
-| `src/services/integrations/CursorHooksInstaller.ts` | Replace hardcoded paths (6 locations) |
+| `src/services/worker/BranchManager.ts` | Replace hardcoded path with "sebastian80" |
+| `src/services/integrations/CursorHooksInstaller.ts` | Replace hardcoded paths with "sebastian80" (6 locations) |
 | `src/services/context/ContextBuilder.ts` | Replace hardcoded path |
 | `src/services/sync/ChromaSync.ts` | Replace hardcoded GitHub URL |
 
@@ -911,7 +912,7 @@ grep -n 'Resetting stale AbortController' src/services/worker/http/routes/Sessio
 grep -n 'cp -r plugin/\\.' scripts/sync-marketplace.cjs
 
 # After sync, verify MCP config exists
-cat ~/.claude/plugins/marketplaces/jillvernus/.mcp.json
+cat ~/.claude/plugins/marketplaces/sebastian80/.mcp.json
 # Should show: {"mcpServers":{"mcp-search":{...}}}
 ```
 
@@ -984,7 +985,7 @@ grep -n 'isRetryableError' src/services/worker/GeminiAgent.ts src/services/worke
 - `plugin/.claude-plugin/plugin.json`
 - `.claude-plugin/marketplace.json`
 
-**Version Format**: `{upstream}-jv.{patch}` (e.g., `9.0.2-jv.2`)
+**Version Format**: `{upstream}-ser.{patch}` (e.g., `9.1.1-ser.1`)
 
 ---
 

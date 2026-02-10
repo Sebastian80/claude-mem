@@ -1,65 +1,94 @@
-# JillVernus Fork of Claude-Mem
+# Sebastian80 Fork of Claude-Mem
 
-This is a fork of [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem) - a persistent memory compression system for Claude Code.
+A stability-focused fork of [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem), a persistent memory system for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-For full documentation, features, and installation instructions, please visit the **[upstream repository](https://github.com/thedotmack/claude-mem)**.
+**Current Version**: `9.1.1-ser.1` (based on upstream v9.1.1)
+
+---
+
+## What is Claude-Mem?
+
+Claude-mem gives Claude Code persistent memory across sessions. It runs as a background worker that observes your Claude Code sessions via lifecycle hooks, compresses observations using an AI provider (Claude, Gemini, or any OpenAI-compatible API), and stores them in a local SQLite database with optional Chroma vector embeddings. At the start of each new session, relevant context from past work is automatically injected so Claude picks up where you left off.
+
+**How it works:**
+
+1. **Hooks** capture tool usage and conversation events during your Claude Code session
+2. **Worker** (Express API on localhost:37777) processes events asynchronously using your chosen AI provider
+3. **Storage** persists compressed observations in SQLite (`~/.claude-mem/claude-mem.db`), with optional Chroma vector search
+4. **Context injection** retrieves relevant past observations at session start via the SessionStart hook
+5. **MCP tools** let Claude search your memory database mid-session (`search`, `timeline`, `get_observations`, `save_memory`)
+
+For full upstream documentation: **[docs.claude-mem.ai](https://docs.claude-mem.ai)** | **[upstream repo](https://github.com/thedotmack/claude-mem)**
 
 ---
 
 ## Why This Fork?
 
-This fork addresses specific stability and usability issues encountered in our environment. All patches are maintained separately to allow easy merging of upstream updates.
+Upstream claude-mem is a great idea with rough edges in production. After running it daily, we hit enough reliability issues to warrant maintaining patches:
 
-**Current Version**: `9.1.1-jv.2` (based on upstream v9.1.1)
+- **Messages silently lost** during worker restarts — observations vanish because the queue doesn't survive crashes
+- **Unbounded context growth** causes sessions to blow up — no truncation for Gemini/OpenAI, and Claude sessions grow until the model hits its limit
+- **API errors trigger rapid-fire retries** — instant retry loops get you rate-limited or blocked by providers
+- **Hardcoded paths crash non-default installations** — upstream assumes `thedotmack` marketplace paths
+- **MCP tool parameters invisible to Claude** — empty schema definitions mean Claude can't see what parameters are available
+- **No way to use custom API endpoints** — can't point at proxies, local LLMs, or regional gateways
 
-## Fork Patches
+This fork carries all the reliability and usability patches originally developed by [JillVernus](https://github.com/JillVernus/claude-mem), plus cherry-picked upstream fixes that hadn't been merged yet. Several JillVernus fixes have been contributed back upstream. All patches are maintained as discrete changes to allow clean merging of upstream releases.
 
-### Critical Stability Fixes
+---
 
-| Patch | Description |
-|-------|-------------|
-| **Safe Message Processing** | Claim→process→delete pattern prevents message loss during worker restarts or session rollover. Messages remain in database until observations are successfully stored. |
-| **Claude Session Rollover** | Restart SDK sessions when context grows too large (default: 150k tokens). Decouples DB identity from provider session to prevent orphaned observations. |
-| **Context Truncation** | Prevents runaway context growth for Gemini/OpenAI providers. Removes duplicate history appends, adds shared truncation utility with pinned message support. |
-| **Exponential Backoff Retry** | API errors use exponential backoff (3s→5s→10s→30s→60s cap) instead of instant retry, preventing rate-limit blocks. |
-| **Stuck Message Recovery** | Terminal error handling, session cache refresh, provider selection fix, periodic orphan recovery. |
-| **Pending Queue Recovery Guard** | Clears stale `pendingRestart` during recovery/manual starts so generators do not stop before claiming queued messages. |
-| ~~**Zombie Process Cleanup**~~ | *(Upstreamed in v9.0.8)* SDK child processes were not properly terminated when sessions ended. Upstream now includes native `ProcessRegistry` for subprocess lifecycle management. |
-| **Dynamic Path Resolution** | Replaced hardcoded marketplace paths with dynamic resolution to prevent crashes on different installations. |
-| ~~**Gemini/OpenAI memorySessionId**~~ | *(Upstreamed in v9.1.1)* Upstream now generates synthetic IDs for stateless providers. Fork keeps OpenAI-compatible provider mapping and compatibility migration. |
+## Fork History
 
-### Upstream Features Adopted (v9.0.12-v9.1.1)
+The stability patches in this fork were developed by **JillVernus** over versions `9.0.8-jv.1` through `9.1.1-jv.2`. Sebastian80 continues maintaining the fork starting with `9.1.1-ser.1`.
 
-| Feature | Description |
-|---------|-------------|
-| **Observer Session Isolation** | Observer sessions use dedicated `cwd` to prevent polluting `claude --resume` list. |
-| **Path Format Matching** | New `path-utils.ts` module for robust folder CLAUDE.md path matching (absolute vs relative). |
-| **Empty CLAUDE.md Prevention** | Upstream now skips creating CLAUDE.md files when there's no activity (fork toggle still available). |
-| **Zombie Observer Prevention** | Upstream added queue idle timeout so observer generators self-terminate after inactivity. |
-| **In-Process Hook Worker** | Upstream hook architecture can host worker in-process to reduce spawn/startup fragility. |
-| **Isolated Credentials** | Upstream reads credentials from `~/.claude-mem/.env` to avoid project env credential hijacking. |
-| **Startup Health Check Fix** | Upstream switched startup checks to `/api/health` liveness endpoint. |
-| **Bun Runner Detection** | Upstream added bun-runner fallback for fresh installs where Bun is not in PATH. |
-| **Stateless memorySessionId Generation** | Upstream now generates synthetic memory IDs for Gemini/OpenRouter on startup. |
-| **Folder CLAUDE.md Exclusions** | Upstream added project and folder exclusion settings for folder CLAUDE.md generation. |
+### What Changed in ser.1
+
+- **Fork transfer**: Migrated repository from `jillvernus/claude-mem` to `sebastian80/claude-mem`
+- **Marketplace path migration**: Updated all hardcoded marketplace paths across 7 source files
+- **Sync script self-detection**: Enhanced `sync-marketplace.cjs` to skip self-copy when dev repo is the marketplace directory
+- **Cherry-picked upstream fixes**: `save_memory` MCP tool endpoint and `sessions/complete` API route that upstream had added but the JillVernus fork hadn't merged yet
+
+---
+
+## All Fork Patches
+
+### Reliability Fixes
+
+| Patch | Problem | Fix |
+|-------|---------|-----|
+| **Safe Message Processing** | Observations lost during worker restarts | Claim→process→delete pattern: messages stay in DB until observations are stored in an atomic transaction |
+| **Claude Session Rollover** | Claude sessions grow until context limit crash | Decouple DB identity from SDK session; restart SDK session at 150k tokens while preserving observation continuity |
+| **Context Truncation** | Gemini/OpenAI context grows unbounded (duplicate appends, no truncation) | Shared truncation utility with pinned message support, API-reported token tracking, retry-on-overflow |
+| **Exponential Backoff Retry** | API errors cause instant retry floods → rate limiting | Backoff delays (3s→5s→10s→30s→60s cap) with abort-aware sleep and structured error detection |
+| **Stuck Message Recovery** | Sessions orphaned with unprocessed messages after crashes | Terminal error detection, session cache refresh, periodic orphan recovery with configurable interval |
+| **Pending Queue Recovery Guard** | Stale `pendingRestart` flag starves message queue after recovery | Clear stale flag during recovery/manual starts before generator boot |
+| **Dynamic Path Resolution** | Hardcoded `thedotmack` paths crash on any other installation | Dynamic path resolution via `getPackageRoot()` across all file references |
+
+### Upstreamed Fixes (no longer fork-only)
+
+| Patch | Upstreamed In |
+|-------|---------------|
+| ~~Zombie Process Cleanup~~ | v9.0.8 — upstream `ProcessRegistry` with PID tracking |
+| ~~Gemini/OpenAI memorySessionId~~ | v9.1.1 — upstream generates synthetic IDs for stateless providers |
+| ~~Folder CLAUDE.md Optimization~~ | v9.1.1 — upstream `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` + exclusion controls |
 
 ### Usability Improvements
 
 | Patch | Description |
 |-------|-------------|
-| **MCP Empty Search** | Empty search queries now return recent results instead of throwing errors. Useful for browsing recent activity. |
-| **MCP Schema Enhancement** | Added explicit property definitions to MCP tool schemas so parameters are visible to Claude. |
-| **Custom API Endpoints** | Configure custom base URLs for Gemini and OpenAI-compatible providers (proxies, self-hosted, regional endpoints). |
-| **Dynamic Model Selection** | Fetch available models from your configured API endpoint. UI shows dropdown of available models. |
-| **Settings Hot-Reload** | Change provider/model settings without restarting the worker. Settings apply automatically when the generator becomes idle. |
-| ~~**Folder CLAUDE.md Optimization**~~ | *(Upstreamed in v9.1.1)* Upstream now ships `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` plus project/folder exclusion controls. |
+| **MCP Schema Enhancement** | Explicit property definitions so Claude can see tool parameters |
+| **MCP Empty Search** | Empty queries return recent results instead of errors |
+| **Custom API Endpoints** | Configurable base URLs for Gemini and OpenAI-compatible providers (proxies, local LLMs, regional gateways) |
+| **Dynamic Model Selection** | Fetch available models from your API endpoint; UI dropdown |
+| **Settings Hot-Reload** | Change provider/model settings without restarting the worker |
+| **OpenAI-Compatible Provider** | Renamed "OpenRouter" to "OpenAI Compatible" — works with any OpenAI-compatible API |
 
-### Optional Features (On Hold)
+### On Hold
 
 | Patch | Description |
 |-------|-------------|
-| **Observation Batching** | Batch multiple observations into single API calls for cost reduction. Disabled by default. |
-| **Autonomous Execution Prevention** | Detect and skip compaction/warmup prompts that might trigger unintended behavior. |
+| **Observation Batching** | Batch multiple observations into single API calls for cost reduction |
+| **Autonomous Execution Prevention** | Detect and skip compaction/warmup prompts that might trigger unintended behavior |
 
 ---
 
@@ -106,7 +135,7 @@ export OPENAI_BASE_URL="https://my-gateway.com/v1/chat/completions"
 ## Installation
 
 ```
-> /plugin marketplace add jillvernus/claude-mem
+> /plugin marketplace add sebastian80/claude-mem
 
 > /plugin install claude-mem
 ```
@@ -115,14 +144,15 @@ export OPENAI_BASE_URL="https://my-gateway.com/v1/chat/completions"
 
 ## Version Format
 
-Fork versions follow the format `{upstream}-jv.{patch}`:
-- `9.1.1-jv.2` = Based on upstream v9.1.1, fork patch version 2
+Fork versions follow the format `{upstream}-ser.{patch}`:
+- `9.1.1-ser.1` = Based on upstream v9.1.1, fork patch version 1
 
 ---
 
 ## Acknowledgments
 
-Thanks to [Alex Newman (@thedotmack)](https://github.com/thedotmack) for creating claude-mem.
+- [Alex Newman (@thedotmack)](https://github.com/thedotmack) for creating claude-mem
+- [JillVernus](https://github.com/JillVernus/claude-mem) for developing the stability and usability patches this fork is based on
 
 ---
 
@@ -138,7 +168,7 @@ See the [LICENSE](LICENSE) file for full details.
 
 ## Support
 
-- **Fork Issues**: [GitHub Issues](https://github.com/JillVernus/claude-mem/issues)
+- **Fork Issues**: [GitHub Issues](https://github.com/Sebastian80/claude-mem/issues)
 - **Upstream Documentation**: [docs.claude-mem.ai](https://docs.claude-mem.ai)
 - **Upstream Issues**: [GitHub Issues](https://github.com/thedotmack/claude-mem/issues)
 
