@@ -1,11 +1,11 @@
 {
-  "name": "jillvernus",
+  "name": "sebastian80",
   "owner": {
-    "name": "JillVernus"
+    "name": "Sebastian80"
   },
   "metadata": {
-    "description": "Fork of claude-mem with batching and stability enhancements",
-    "homepage": "https://github.com/JillVernus/claude-mem"
+    "description": "Personal fork of claude-mem with batching, stability enhancements, and folder CLAUDE.md fix",
+    "homepage": "https://github.com/Sebastian80/claude-mem"
   },
   "plugins": [
     {
