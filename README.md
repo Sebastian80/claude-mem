@@ -39,7 +39,7 @@ This is a fork of [JillVernus/claude-mem](https://github.com/JillVernus/claude-m
 ### What Sebastian80 adds (ser.1)
 
 - **Cherry-picked upstream fixes** that JillVernus hadn't picked up yet: `save_memory` MCP tool endpoint, `sessions/complete` API route, and `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` config flag in ResponseProcessor
-- **Marketplace path fixes**: Updated hardcoded `jillvernus` marketplace paths to `sebastian80` across source files and sync scripts
+- **Marketplace path update**: Updated hardcoded marketplace paths from `jillvernus` to `sebastian80` across source files and sync scripts (required for the fork to work under its own marketplace name)
 - **Sync script self-detection**: Enhanced `sync-marketplace.cjs` to skip self-copy when dev repo is the marketplace directory
 
 ---
