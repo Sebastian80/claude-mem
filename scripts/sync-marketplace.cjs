@@ -11,8 +11,8 @@ const { existsSync, readFileSync, writeFileSync, readdirSync, rmSync } = require
 const path = require('path');
 const os = require('os');
 
-const INSTALLED_PATH = path.join(os.homedir(), '.claude', 'plugins', 'marketplaces', 'jillvernus');
-const CACHE_BASE_PATH = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'jillvernus', 'claude-mem');
+const INSTALLED_PATH = path.join(os.homedir(), '.claude', 'plugins', 'marketplaces', 'sebastian80');
+const CACHE_BASE_PATH = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'sebastian80', 'claude-mem');
 
 function getCurrentBranch() {
   try {
@@ -66,7 +66,7 @@ try {
   // Use cp with trailing dot to include hidden files (like .mcp.json)
   // The /. syntax copies directory contents including dotfiles
   execSync(
-    'cp -r plugin/. ~/.claude/plugins/marketplaces/jillvernus/',
+    'cp -r plugin/. ~/.claude/plugins/marketplaces/sebastian80/',
     { stdio: 'inherit' }
   );
 
@@ -96,7 +96,7 @@ try {
 
   console.log('Running npm install in marketplace...');
   execSync(
-    'cd ~/.claude/plugins/marketplaces/jillvernus/ && npm install',
+    'cd ~/.claude/plugins/marketplaces/sebastian80/ && npm install',
     { stdio: 'inherit' }
   );
 
@@ -131,7 +131,7 @@ try {
   if (existsSync(installedPluginsPath)) {
     try {
       const installedPlugins = JSON.parse(readFileSync(installedPluginsPath, 'utf-8'));
-      const claudeMemEntry = installedPlugins.plugins?.['claude-mem@jillvernus'];
+      const claudeMemEntry = installedPlugins.plugins?.['claude-mem@sebastian80'];
       if (claudeMemEntry && claudeMemEntry.length > 0) {
         claudeMemEntry[0].version = version;
         claudeMemEntry[0].installPath = CACHE_VERSION_PATH;
