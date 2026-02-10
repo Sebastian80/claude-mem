@@ -70,6 +70,7 @@ import { DataRoutes } from './worker/http/routes/DataRoutes.js';
 import { SearchRoutes } from './worker/http/routes/SearchRoutes.js';
 import { SettingsRoutes } from './worker/http/routes/SettingsRoutes.js';
 import { LogsRoutes } from './worker/http/routes/LogsRoutes.js';
+import { MemoryRoutes } from './worker/http/routes/MemoryRoutes.js';
 
 // Process management for zombie cleanup (Issue #737)
 import { startOrphanReaper, reapOrphanedProcesses } from './worker/ProcessRegistry.js';
@@ -213,6 +214,7 @@ export class WorkerService {
     this.server.registerRoutes(new DataRoutes(this.paginationHelper, this.dbManager, this.sessionManager, this.sseBroadcaster, this, this.startTime));
     this.server.registerRoutes(new SettingsRoutes(this.settingsManager));
     this.server.registerRoutes(new LogsRoutes());
+    this.server.registerRoutes(new MemoryRoutes(this.dbManager, 'claude-mem'));
 
     // Early handler for /api/context/inject to avoid 404 during startup
     this.server.app.get('/api/context/inject', async (req, res, next) => {
@@ -839,7 +841,7 @@ async function main() {
       if (!platform || !event) {
         console.error('Usage: claude-mem hook <platform> <event>');
         console.error('Platforms: claude-code, cursor, raw');
-        console.error('Events: context, session-init, observation, summarize');
+        console.error('Events: context, session-init, observation, summarize, session-complete');
         process.exit(1);
       }
 
