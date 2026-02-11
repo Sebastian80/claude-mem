@@ -2,7 +2,7 @@
 
 All notable changes to claude-mem.
 
-## [v9.1.1-ser.1] - 2026-02-11
+## [v9.1.1-ser.2] - 2026-02-11
 
 ### Bug Fixes
 

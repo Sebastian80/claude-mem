@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the Sebastian80 fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.1.1-ser.1`
+**Current Fork Version**: `9.1.1-ser.2`
 **Upstream Base**: `v9.1.1` (commit `5969d670`)
 **Last Merge**: 2026-02-08
 **Recent Updates**:
+- `9.1.1-ser.2`: Re-applied upstream project backfill fix (`af308ea`) lost in JillVernus's v9.0.17 merge. Sessions created by SAVE hook now get project field populated correctly.
 - `9.1.1-ser.1`: Fork transfer from jillvernus to sebastian80. Migrated all hardcoded marketplace paths (7 files), enhanced sync script self-detection, cherry-picked upstream `save_memory` and `sessions/complete` fixes.
 - `9.1.1-jv.2`: UI enhancement - moved Gemini "Fetch Models" button next to the Gemini model field in Advanced settings.
 - `9.1.1-jv.1`: Merged upstream v9.1.1. Marked Category I (Folder CLAUDE.md optimization) and Category J (stateless provider memorySessionId generation) as **upstream fixed**; kept fork-only categories that are still not addressed upstream.

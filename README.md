@@ -2,7 +2,7 @@
 
 A stability-focused fork of [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem), a persistent memory system for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-**Current Version**: `9.1.1-ser.1` (based on upstream v9.1.1)
+**Current Version**: `9.1.1-ser.2` (based on upstream v9.1.1)
 
 ---
 
