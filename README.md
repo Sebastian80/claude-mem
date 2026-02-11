@@ -1,6 +1,6 @@
 # Sebastian80 Fork of Claude-Mem
 
-A stability-focused fork of [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem), a persistent memory system for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+A stability-focused fork of [JillVernus/claude-mem](https://github.com/JillVernus/claude-mem) (itself a fork of [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)), a persistent memory system for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 **Current Version**: `9.1.1-ser.2` (based on upstream v9.1.1)
 
@@ -36,12 +36,12 @@ This fork builds on JillVernus's work and adds cherry-picked upstream fixes that
 
 This is a fork of [JillVernus/claude-mem](https://github.com/JillVernus/claude-mem), which is itself a fork of [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem). All the stability and usability patches (versions `9.0.8-jv.1` through `9.1.1-jv.2`) were developed by JillVernus. JillVernus's fork continues independently.
 
-### What Sebastian80 adds (ser.1)
+### What Sebastian80 adds
 
-- **Re-applied project backfill fix** lost in JillVernus's v9.0.17 merge: sessions created by SAVE hook (empty project) now get their project field populated when UserPromptSubmit fires. Without this, sessions accumulate with empty project names in the database.
-- **Cherry-picked upstream fixes** that JillVernus hadn't picked up yet: `save_memory` MCP tool endpoint, `sessions/complete` API route, and `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` config flag in ResponseProcessor
-- **Marketplace path update**: Updated hardcoded marketplace paths from `jillvernus` to `sebastian80` across source files and sync scripts (required for the fork to work under its own marketplace name)
-- **Sync script self-detection**: Enhanced `sync-marketplace.cjs` to skip self-copy when dev repo is the marketplace directory
+- **[ser.2] Re-applied project backfill fix** lost in JillVernus's v9.0.17 merge: sessions created by SAVE hook (empty project) now get their project field populated when UserPromptSubmit fires. Without this, sessions accumulate with empty project names in the database.
+- **[ser.1] Cherry-picked upstream fixes** that JillVernus hadn't picked up yet: `save_memory` MCP tool endpoint, `sessions/complete` API route, and `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` config flag in ResponseProcessor
+- **[ser.1] Marketplace path update**: Updated hardcoded marketplace paths from `jillvernus` to `sebastian80` across source files and sync scripts (required for the fork to work under its own marketplace name)
+- **[ser.1] Sync script self-detection**: Enhanced `sync-marketplace.cjs` to skip self-copy when dev repo is the marketplace directory
 
 ---
 
@@ -102,7 +102,8 @@ These issues were also fixed upstream, so the fork patches are no longer needed:
 ## Version Format
 
 Fork versions follow the format `{upstream}-ser.{patch}`:
-- `9.1.1-ser.1` = Based on upstream v9.1.1, fork patch version 1
+- `9.1.1-ser.2` = Based on upstream v9.1.1, fork patch version 2 (project backfill fix)
+- `9.1.1-ser.1` = Based on upstream v9.1.1, fork patch version 1 (initial fork)
 
 ---
 

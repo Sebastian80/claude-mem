@@ -242,7 +242,7 @@ Expected: Detection patterns in session-init.ts, extended disallowedTools in SDK
 
 ### Step 6: Update Version
 
-Bump version in all 4 files (e.g., `9.1.1-ser.1` → `9.2.0-ser.1`):
+Bump version in all 4 files (e.g., `9.1.1-ser.2` → `9.2.0-ser.1`):
 - `package.json`
 - `plugin/package.json`
 - `plugin/.claude-plugin/plugin.json`
@@ -1007,7 +1007,7 @@ empty project fields when a subsequent call provides a non-empty project name.
 - `plugin/.claude-plugin/plugin.json`
 - `.claude-plugin/marketplace.json`
 
-**Version Format**: `{upstream}-ser.{patch}` (e.g., `9.1.1-ser.1`)
+**Version Format**: `{upstream}-ser.{patch}` (e.g., `9.1.1-ser.2`)
 
 ---
 
