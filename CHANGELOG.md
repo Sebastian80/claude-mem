@@ -2,6 +2,12 @@
 
 All notable changes to claude-mem.
 
+## [v9.1.1-ser.3] - 2026-02-11
+
+### Bug Fixes
+
+- **ChromaSync duplicate subprocess prevention** — `ensureConnection()` had a check-then-act race condition where concurrent callers could both pass the guard before either set `connected=true`, each spawning their own chroma-mcp subprocess. Added connection promise cache so concurrent callers share a single initialization attempt. Scales with session count (N sessions = N orphaned subprocesses without fix). Related upstream PRs: thedotmack/claude-mem#993, #1065 (both still open).
+
 ## [v9.1.1-ser.2] - 2026-02-11
 
 ### Bug Fixes
