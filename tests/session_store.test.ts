@@ -43,6 +43,56 @@ describe('SessionStore', () => {
     expect(store.getPromptNumberFromUserPrompts(claudeId)).toBe(2);
   });
 
+  describe('createSDKSession project handling', () => {
+    it('should return same ID for duplicate contentSessionId', () => {
+      const claudeId = 'claude-session-dedup';
+      const id1 = store.createSDKSession(claudeId, 'my-project', 'prompt 1');
+      const id2 = store.createSDKSession(claudeId, 'my-project', 'prompt 2');
+      expect(id2).toBe(id1);
+    });
+
+    it('should backfill project when session was created with empty project', () => {
+      const claudeId = 'claude-session-backfill';
+
+      // SAVE hook creates session first with empty project
+      const id1 = store.createSDKSession(claudeId, '', '');
+
+      // Verify project is empty
+      const before = store.db.prepare(
+        'SELECT project FROM sdk_sessions WHERE content_session_id = ?'
+      ).get(claudeId) as { project: string };
+      expect(before.project).toBe('');
+
+      // UserPromptSubmit hook calls with real project
+      const id2 = store.createSDKSession(claudeId, 'real-project', 'hello');
+
+      // Same session ID returned
+      expect(id2).toBe(id1);
+
+      // Project should now be backfilled
+      const after = store.db.prepare(
+        'SELECT project FROM sdk_sessions WHERE content_session_id = ?'
+      ).get(claudeId) as { project: string };
+      expect(after.project).toBe('real-project');
+    });
+
+    it('should not overwrite existing project with empty string', () => {
+      const claudeId = 'claude-session-no-overwrite';
+
+      // Created with real project
+      store.createSDKSession(claudeId, 'original-project', 'prompt');
+
+      // Another hook calls with empty project
+      store.createSDKSession(claudeId, '', '');
+
+      // Project should remain unchanged
+      const row = store.db.prepare(
+        'SELECT project FROM sdk_sessions WHERE content_session_id = ?'
+      ).get(claudeId) as { project: string };
+      expect(row.project).toBe('original-project');
+    });
+  });
+
   it('should store observation with timestamp override', () => {
     const claudeId = 'claude-sess-obs';
     const memoryId = 'memory-sess-obs';

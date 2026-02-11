@@ -46,7 +46,8 @@ Categories are ordered by severity (critical fixes first).
 | 14 | I: Folder CLAUDE.md Optimization | Fix - folder toggle + exclusion controls | 3 | Upstream Fixed (v9.1.1) |
 | 15 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
 | 16 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
-| 17 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
+| 17 | U: Project Backfill Fix | Bugfix - re-apply upstream project backfill lost in v9.0.17 merge | 1 | Active |
+| 18 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
 
 ### Files by Category
 
@@ -972,6 +973,26 @@ grep -n 'isRetryableError' src/services/worker/GeminiAgent.ts src/services/worke
 ```
 
 **Plan**: `docs/plans/exponential-backoff-retry.md`
+
+---
+
+### Category U: Project Backfill Fix (Priority 3)
+
+> **Upstream Status**: Present since `af308ea` (Feb 4).
+> Lost in fork during Jill's v9.0.17 merge (`845f506`, Feb 7) which resolved a conflict
+> in `SessionStore.ts` by taking the older upstream version without the backfill.
+
+**Problem**: Sessions created by the SAVE hook (which passes empty project) never get
+their project field populated, even when UserPromptSubmit fires with the real project name.
+The `INSERT OR IGNORE` pattern silently discards the project value on subsequent calls.
+
+**Fix**: Replaced `INSERT OR IGNORE` with SELECT→UPDATE/INSERT pattern that backfills
+empty project fields when a subsequent call provides a non-empty project name.
+
+**Files**:
+| File | Change |
+|------|--------|
+| `src/services/sqlite/SessionStore.ts` | `createSDKSession()`: SELECT→UPDATE/INSERT with project backfill |
 
 ---
 

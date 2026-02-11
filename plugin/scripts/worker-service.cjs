@@ -386,11 +386,16 @@ Please see the 3.x to 4.x migration guide for details on how to update your app.
       ORDER BY started_at_epoch DESC
     `).all(...e)}getPromptNumberFromUserPrompts(e){return this.db.prepare(`
       SELECT COUNT(*) as count FROM user_prompts WHERE content_session_id = ?
-    `).get(e).count}createSDKSession(e,r,n){let i=new Date,o=i.getTime();return this.db.prepare(`
-      INSERT OR IGNORE INTO sdk_sessions
+    `).get(e).count}createSDKSession(e,r,n){let i=new Date,o=i.getTime(),s=this.db.prepare(`
+      SELECT id FROM sdk_sessions WHERE content_session_id = ?
+    `).get(e);return s?(r&&this.db.prepare(`
+          UPDATE sdk_sessions SET project = ?
+          WHERE content_session_id = ? AND (project IS NULL OR project = '')
+        `).run(r,e),s.id):(this.db.prepare(`
+      INSERT INTO sdk_sessions
       (content_session_id, memory_session_id, project, user_prompt, started_at, started_at_epoch, status)
       VALUES (?, NULL, ?, ?, ?, ?, 'active')
-    `).run(e,r,n,i.toISOString(),o),this.db.prepare("SELECT id FROM sdk_sessions WHERE content_session_id = ?").get(e).id}saveUserPrompt(e,r,n){let i=new Date,o=i.getTime();return this.db.prepare(`
+    `).run(e,r,n,i.toISOString(),o),this.db.prepare("SELECT id FROM sdk_sessions WHERE content_session_id = ?").get(e).id)}saveUserPrompt(e,r,n){let i=new Date,o=i.getTime();return this.db.prepare(`
       INSERT INTO user_prompts
       (content_session_id, prompt_number, prompt_text, created_at, created_at_epoch)
       VALUES (?, ?, ?, ?, ?)
