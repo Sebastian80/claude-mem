@@ -38,6 +38,7 @@ This is a fork of [JillVernus/claude-mem](https://github.com/JillVernus/claude-m
 
 ### What Sebastian80 adds (ser.1)
 
+- **Re-applied project backfill fix** lost in JillVernus's v9.0.17 merge: sessions created by SAVE hook (empty project) now get their project field populated when UserPromptSubmit fires. Without this, sessions accumulate with empty project names in the database.
 - **Cherry-picked upstream fixes** that JillVernus hadn't picked up yet: `save_memory` MCP tool endpoint, `sessions/complete` API route, and `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` config flag in ResponseProcessor
 - **Marketplace path update**: Updated hardcoded marketplace paths from `jillvernus` to `sebastian80` across source files and sync scripts (required for the fork to work under its own marketplace name)
 - **Sync script self-detection**: Enhanced `sync-marketplace.cjs` to skip self-copy when dev repo is the marketplace directory

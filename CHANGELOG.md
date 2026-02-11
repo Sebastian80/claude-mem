@@ -2,6 +2,12 @@
 
 All notable changes to claude-mem.
 
+## [v9.1.1-ser.1] - 2026-02-11
+
+### Bug Fixes
+
+- **Project backfill re-applied** — Sessions created by SAVE hook (empty project) now get their project field populated when UserPromptSubmit fires with the real project name. The upstream fix (PR #940, commit `af308ea`) was lost during the v9.0.17 merge (`845f506`) which resolved a conflict by taking the older code. Replaced `INSERT OR IGNORE` with SELECT→UPDATE/INSERT pattern in `createSDKSession()`.
+
 ## [v9.1.0] - 2026-02-07
 
 ## v9.1.0 — The Great PR Triage
@@ -1289,9 +1295,15 @@ The user stated "hooks provide session IDs, no extra management needed" **seven 
 
 ### What remains (~10 lines):
 ```javascript
-createSDKSession(sessionId) {
-  db.run('INSERT OR IGNORE INTO sdk_sessions (...) VALUES (...)');
-  return db.query('SELECT id FROM sdk_sessions WHERE ...').get(sessionId);
+createSDKSession(sessionId, project, prompt) {
+  const existing = db.query('SELECT id FROM sdk_sessions WHERE ...').get(sessionId);
+  if (existing) {
+    // Backfill project if empty (e.g. SAVE hook created session first)
+    if (project) db.run('UPDATE sdk_sessions SET project = ? WHERE ... AND project = ""');
+    return existing.id;
+  }
+  db.run('INSERT INTO sdk_sessions (...) VALUES (...)');
+  return db.query('SELECT id FROM sdk_sessions WHERE ...').get(sessionId).id;
 }
 ```
 
