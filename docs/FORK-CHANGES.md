@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the Sebastian80 fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.1.1-ser.2`
+**Current Fork Version**: `9.1.1-ser.3`
 **Upstream Base**: `v9.1.1` (commit `5969d670`)
 **Last Merge**: 2026-02-08
 **Recent Updates**:
+- `9.1.1-ser.3`: Fixed ChromaSync duplicate subprocess spawning — concurrent `ensureConnection()` calls now share a single connection attempt via promise cache. Pre-existing upstream bug (PRs #993, #1065 still open).
 - `9.1.1-ser.2`: Re-applied upstream project backfill fix (`af308ea`) lost in JillVernus's v9.0.17 merge. Sessions created by SAVE hook now get project field populated correctly.
 - `9.1.1-ser.1`: Fork transfer from jillvernus to sebastian80. Migrated all hardcoded marketplace paths (7 files), enhanced sync script self-detection, cherry-picked upstream `save_memory` and `sessions/complete` fixes.
 - `9.1.1-jv.2`: UI enhancement - moved Gemini "Fetch Models" button next to the Gemini model field in Advanced settings.
@@ -48,7 +49,8 @@ Categories are ordered by severity (critical fixes first).
 | 15 | B: Observation Batching | Cost reduction - batch API calls | 5 | ⏸️ ON HOLD |
 | 16 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
 | 17 | U: Project Backfill Fix | Bugfix - re-apply upstream project backfill lost in v9.0.17 merge | 1 | Active |
-| 18 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
+| 18 | V: ChromaSync Connection Mutex | Bugfix - prevent duplicate subprocess spawning on concurrent connections | 1 | Active |
+| 19 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
 
 ### Files by Category
 
@@ -997,6 +999,31 @@ empty project fields when a subsequent call provides a non-empty project name.
 
 ---
 
+### Category V: ChromaSync Connection Mutex (Priority 3)
+
+> **Upstream Status**: Unmerged. PRs [#993](https://github.com/thedotmack/claude-mem/pull/993) (async mutex + timeout) and [#1065](https://github.com/thedotmack/claude-mem/pull/1065) (5-layer defense) both address this bug but remain open.
+
+**Problem**: `ensureConnection()` has a check-then-act race condition. Concurrent callers both pass the `if (this.connected)` guard before either finishes connecting, each spawning their own chroma-mcp subprocess. Only the last writer's transport reference survives; all others become orphans. Scales linearly with concurrent sessions.
+
+**Fix**: Connection promise cache (async singleton pattern). First caller stores the connection promise; subsequent callers return the cached promise. After settling, the cache is cleared.
+
+**Files**:
+| File | Change |
+|------|--------|
+| `src/services/sync/ChromaSync.ts` | `connectionPromise` field, `ensureConnection()` → mutex wrapper + `doConnect()`, reset in error handlers and `close()` |
+
+**Verification**:
+```bash
+# Check mutex pattern exists
+grep -n 'connectionPromise' src/services/sync/ChromaSync.ts
+
+# After worker restart, verify only one chroma-mcp pair
+ps aux | grep chroma-mcp | grep -v grep | wc -l
+# Expected: 2 (one uv parent + one python child)
+```
+
+---
+
 ### Category G: Fork Configuration (Priority 10)
 
 **Purpose**: Maintain fork identity and marketplace configuration.
@@ -1007,7 +1034,7 @@ empty project fields when a subsequent call provides a non-empty project name.
 - `plugin/.claude-plugin/plugin.json`
 - `.claude-plugin/marketplace.json`
 
-**Version Format**: `{upstream}-ser.{patch}` (e.g., `9.1.1-ser.2`)
+**Version Format**: `{upstream}-ser.{patch}` (e.g., `9.1.1-ser.3`)
 
 ---
 
