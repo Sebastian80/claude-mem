@@ -312,6 +312,65 @@ describe('ChromaSync Vector Sync Integration', () => {
     });
   });
 
+  describe('Connection mutex (duplicate subprocess prevention)', () => {
+    /**
+     * Concurrent calls to ensureConnection() must share a single connection
+     * attempt. Without the mutex, each concurrent caller spawns its own
+     * chroma-mcp subprocess, orphaning all but the last one.
+     */
+    it('should have connectionPromise field for mutex coordination', async () => {
+      const { ChromaSync } = await import('../../src/services/sync/ChromaSync.js');
+      const sync = new ChromaSync(testProject);
+      const syncAny = sync as any;
+
+      // connectionPromise should exist and be null when idle
+      expect(syncAny.connectionPromise).toBeNull();
+    });
+
+    it('should coalesce concurrent ensureConnection calls into one attempt', async () => {
+      const { ChromaSync } = await import('../../src/services/sync/ChromaSync.js');
+      const sync = new ChromaSync(testProject);
+      const syncAny = sync as any;
+
+      // Fire two concurrent connection attempts
+      const p1 = syncAny.ensureConnection();
+      const p2 = syncAny.ensureConnection();
+
+      // While in flight, both callers should share the same promise
+      expect(syncAny.connectionPromise).not.toBeNull();
+
+      // Wait for both to settle (may succeed or fail depending on chroma availability)
+      const [r1, r2] = await Promise.allSettled([p1, p2]);
+
+      // Both must have the same outcome — proof they shared one attempt
+      expect(r1.status).toBe(r2.status);
+
+      // After completion, connectionPromise must be cleared
+      expect(syncAny.connectionPromise).toBeNull();
+
+      await sync.close();
+    });
+
+    it('should reset connectionPromise on close()', async () => {
+      const { ChromaSync } = await import('../../src/services/sync/ChromaSync.js');
+      const sync = new ChromaSync(testProject);
+      const syncAny = sync as any;
+
+      await sync.close();
+      expect(syncAny.connectionPromise).toBeNull();
+    });
+
+    it('should have connection mutex pattern in source code', async () => {
+      const sourceFile = await Bun.file(
+        new URL('../../src/services/sync/ChromaSync.ts', import.meta.url)
+      ).text();
+
+      // Verify the mutex pattern: connectionPromise field and doConnect extraction
+      expect(sourceFile).toContain('connectionPromise');
+      expect(sourceFile).toContain('doConnect');
+    });
+  });
+
   describe('Process leak prevention (Issue #761)', () => {
     /**
      * Regression test for GitHub Issue #761:

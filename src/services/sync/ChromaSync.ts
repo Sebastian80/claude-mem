@@ -84,6 +84,7 @@ export class ChromaSync {
   private collectionName: string;
   private readonly VECTOR_DB_DIR: string;
   private readonly BATCH_SIZE = 100;
+  private connectionPromise: Promise<void> | null = null;
 
   // Windows: Chroma disabled due to MCP SDK spawning console popups
   // See: https://github.com/anthropics/claude-mem/issues/675
@@ -188,14 +189,32 @@ export class ChromaSync {
   }
 
   /**
-   * Ensure MCP client is connected to Chroma server
-   * Throws error if connection fails
+   * Ensure MCP client is connected to Chroma server.
+   * Uses a connection promise cache so concurrent callers share a single
+   * connection attempt instead of each spawning their own subprocess.
    */
   private async ensureConnection(): Promise<void> {
     if (this.connected && this.client) {
       return;
     }
 
+    if (this.connectionPromise) {
+      return this.connectionPromise;
+    }
+
+    this.connectionPromise = this.doConnect();
+    try {
+      await this.connectionPromise;
+    } finally {
+      this.connectionPromise = null;
+    }
+  }
+
+  /**
+   * Spawn chroma-mcp subprocess and establish MCP connection.
+   * Only called by ensureConnection() — never directly.
+   */
+  private async doConnect(): Promise<void> {
     logger.info('CHROMA_SYNC', 'Connecting to Chroma MCP server...', { project: this.project });
 
     try {
@@ -305,6 +324,7 @@ export class ChromaSync {
         this.connected = false;
         this.client = null;
         this.transport = null;
+        this.connectionPromise = null;
         logger.error('CHROMA_SYNC', 'Connection lost during collection check',
           { collection: this.collectionName }, error as Error);
         throw new Error(`Chroma connection lost: ${errorMessage}`);
@@ -974,6 +994,7 @@ export class ChromaSync {
         this.connected = false;
         this.client = null;
         this.transport = null;
+        this.connectionPromise = null;
         logger.error('CHROMA_SYNC', 'Connection lost during query',
           { project: this.project, query }, error as Error);
         throw new Error(`Chroma query failed - connection lost: ${errorMessage}`);
@@ -1054,5 +1075,6 @@ export class ChromaSync {
     this.connected = false;
     this.client = null;
     this.transport = null;
+    this.connectionPromise = null;
   }
 }
