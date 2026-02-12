@@ -423,7 +423,16 @@ export class WorkerService {
     }
 
     session.generatorPromise = agentPromise
-      .catch(error => {
+      .catch(async (error: unknown) => {
+        if (this.isSessionTerminatedError(error)) {
+          logger.warn('SDK', 'Session terminated, falling back to standalone processing', {
+            sessionId: session.sessionDbId,
+            project: session.project,
+            provider: selectedProvider,
+            reason: error instanceof Error ? error.message : String(error)
+          });
+          return this.runFallbackForTerminatedSession(session, error);
+        }
         logger.error('SDK', 'Session generator failed', {
           sessionId: session.sessionDbId,
           project: session.project,
@@ -434,6 +443,80 @@ export class WorkerService {
         session.generatorPromise = null;
         this.broadcastProcessingStatus();
       });
+  }
+
+  /**
+   * Match errors that indicate the Claude Code process/session is gone (resume impossible).
+   * Used to trigger graceful fallback instead of leaving pending messages stuck forever.
+   * Adapted from upstream PR #937 by @jayvenn21.
+   */
+  private isSessionTerminatedError(error: unknown): boolean {
+    const msg = error instanceof Error ? error.message : String(error);
+    const normalized = msg.toLowerCase();
+    return (
+      normalized.includes('process aborted by user') ||
+      normalized.includes('processtransport') ||
+      normalized.includes('not ready for writing') ||
+      normalized.includes('session generator failed') ||
+      normalized.includes('claude code process')
+    );
+  }
+
+  /**
+   * When a session processor fails due to terminated session: try Gemini then OpenAI to drain
+   * pending messages; if no fallback available, mark messages abandoned and remove session.
+   * Adapted from upstream PR #937 by @jayvenn21 (OpenRouter → OpenAI for this fork).
+   */
+  private async runFallbackForTerminatedSession(
+    session: ReturnType<typeof this.sessionManager.getSession>,
+    _originalError: unknown
+  ): Promise<void> {
+    if (!session) return;
+
+    const sessionDbId = session.sessionDbId;
+
+    // Fallback agents need memorySessionId for storeObservations
+    if (!session.memorySessionId) {
+      const syntheticId = `fallback-${sessionDbId}-${Date.now()}`;
+      session.memorySessionId = syntheticId;
+      this.dbManager.getSessionStore().updateMemorySessionId(sessionDbId, syntheticId);
+    }
+
+    if (isGeminiAvailable()) {
+      try {
+        await this.geminiAgent.startSession(session, this);
+        return;
+      } catch (e) {
+        logger.warn('SDK', 'Fallback Gemini failed, trying OpenAI', {
+          sessionId: sessionDbId,
+          error: e instanceof Error ? e.message : String(e)
+        });
+      }
+    }
+
+    if (isOpenAIAvailable()) {
+      try {
+        await this.openAIAgent.startSession(session, this);
+        return;
+      } catch (e) {
+        logger.warn('SDK', 'Fallback OpenAI failed', {
+          sessionId: sessionDbId,
+          error: e instanceof Error ? e.message : String(e)
+        });
+      }
+    }
+
+    // No fallback or both failed: mark messages abandoned and remove session so queue doesn't grow
+    const pendingStore = this.sessionManager.getPendingMessageStore();
+    const abandoned = pendingStore.markAllSessionMessagesAbandoned(sessionDbId);
+    if (abandoned > 0) {
+      logger.warn('SDK', 'No fallback available; marked pending messages abandoned', {
+        sessionId: sessionDbId,
+        abandoned
+      });
+    }
+    this.sessionManager.removeSessionImmediate(sessionDbId);
+    this.sessionEventBroadcaster.broadcastSessionCompleted(sessionDbId);
   }
 
   /**

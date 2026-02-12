@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the Sebastian80 fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.1.1-ser.3`
+**Current Fork Version**: `9.1.1-ser.4`
 **Upstream Base**: `v9.1.1` (commit `5969d670`)
 **Last Merge**: 2026-02-08
 **Recent Updates**:
+- `9.1.1-ser.4`: Re-applied orphaned message fallback from upstream PR #937 (lost in JillVernus's v9.1.1 reconciliation merge). On session termination, orphaned queue items now cascade through Gemini → OpenAI → mark abandoned instead of aging through 3 retry cycles (~329s TIMEOUT_FAILED).
 - `9.1.1-ser.3`: Fixed ChromaSync duplicate subprocess spawning — concurrent `ensureConnection()` calls now share a single connection attempt via promise cache. Pre-existing upstream bug (PRs #993, #1065 still open).
 - `9.1.1-ser.2`: Re-applied upstream project backfill fix (`af308ea`) lost in JillVernus's v9.0.17 merge. Sessions created by SAVE hook now get project field populated correctly.
 - `9.1.1-ser.1`: Fork transfer from jillvernus to sebastian80. Migrated all hardcoded marketplace paths (7 files), enhanced sync script self-detection, cherry-picked upstream `save_memory` and `sessions/complete` fixes.
@@ -50,7 +51,8 @@ Categories are ordered by severity (critical fixes first).
 | 16 | F: Autonomous Execution Prevention | Safety - block SDK autonomous behavior | 3 | ⏸️ ON HOLD |
 | 17 | U: Project Backfill Fix | Bugfix - re-apply upstream project backfill lost in v9.0.17 merge | 1 | Active |
 | 18 | V: ChromaSync Connection Mutex | Bugfix - prevent duplicate subprocess spawning on concurrent connections | 1 | Active |
-| 19 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
+| 19 | W: Orphaned Message Fallback | Bugfix - session termination detection + fallback chain + immediate abandon | 2 | Active |
+| 20 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
 
 ### Files by Category
 
@@ -1020,6 +1022,39 @@ grep -n 'connectionPromise' src/services/sync/ChromaSync.ts
 # After worker restart, verify only one chroma-mcp pair
 ps aux | grep chroma-mcp | grep -v grep | wc -l
 # Expected: 2 (one uv parent + one python child)
+```
+
+---
+
+### Category W: Orphaned Message Fallback (Priority 6)
+
+> **Upstream Status**: Merged as PR #937 (`f24bba2`) in v9.1.0.
+> Lost during JillVernus's v9.1.1 reconciliation merge (`ab21bda`).
+> Re-applied in `9.1.1-ser.4` with OpenRouterAgent → OpenAIAgent adaptation.
+
+**Problem**: When a Claude session is terminated (ctrl-C), the SDK agent's catch block only logs the error. Orphaned queue items then age through 3 retry cycles over ~329 seconds before being dropped as TIMEOUT_FAILED, losing observations permanently. This caused 149 TIMEOUT_FAILED errors on Feb 12 and 42 on Feb 10.
+
+**Solution**: Session termination detection with cascading fallback chain:
+1. `isSessionTerminatedError()` detects process abort, transport failure, and related errors
+2. `runFallbackForTerminatedSession()` tries Gemini → OpenAI → mark abandoned
+3. On final fallback: `markAllSessionMessagesAbandoned()` prevents queue growth, `removeSessionImmediate()` cleans up session
+
+**Files**:
+| File | Change |
+|------|--------|
+| `src/services/sqlite/PendingMessageStore.ts` | Add `markAllSessionMessagesAbandoned()` — marks all pending/processing messages as failed |
+| `src/services/worker-service.ts` | Add `isSessionTerminatedError()`, `runFallbackForTerminatedSession()`, modify `startSessionProcessor()` catch block |
+
+**Verification**:
+```bash
+# Check all 3 functions present in built output
+grep -c 'markAllSessionMessagesAbandoned\|isSessionTerminatedError\|runFallbackForTerminatedSession' plugin/scripts/worker-service.cjs
+
+# Check termination detection patterns
+grep -n 'isSessionTerminatedError' src/services/worker-service.ts
+
+# Check fallback chain
+grep -n 'runFallbackForTerminatedSession' src/services/worker-service.ts
 ```
 
 ---

@@ -2,6 +2,12 @@
 
 All notable changes to claude-mem.
 
+## [v9.1.1-ser.4] - 2026-02-12
+
+### Bug Fixes
+
+- **Orphaned message fallback** — When a Claude session is terminated (ctrl-C), orphaned queue items would age through 3 retry cycles (~329s) before being dropped as TIMEOUT_FAILED, losing observations permanently. Added session termination detection and cascading fallback: Gemini → OpenAI → mark abandoned. Adapted from upstream PR #937 by @jayvenn21 (fixes #936), which was included in upstream v9.1.0 but lost during JillVernus v9.1.1 fork reconciliation merge (`ab21bda`). OpenRouterAgent references adapted to OpenAIAgent for our fork's architecture.
+
 ## [v9.1.1-ser.3] - 2026-02-11
 
 ### Bug Fixes
@@ -69,7 +75,7 @@ Hooks no longer block Claude Code when the worker is unavailable or slow:
 
 - **Prompt-too-long termination** — Sessions terminate cleanly instead of infinite retry loops (PR #934 by @jayvenn21)
 - **Infinite restart prevention** — Max 3 restart attempts with exponential backoff, prevents runaway API costs (PR #693 by @ajbmachon)
-- **Orphaned message fallback** — Messages from terminated sessions drain via Gemini/OpenRouter fallback (PR #937 by @jayvenn21, fixes #936)
+- **Orphaned message fallback** — Messages from terminated sessions drain via Gemini/OpenRouter fallback (PR #937 by @jayvenn21, fixes #936) *(Note: code was lost during JillVernus v9.1.1 reconciliation merge `ab21bda`; re-applied in v9.1.1-ser.4)*
 - **Project field backfill** — Sessions correctly scoped when PostToolUse creates session before UserPromptSubmit (PR #940 by @miclip)
 - **Provider-aware recovery** — Startup recovery uses correct provider instead of hardcoding SDKAgent (PR #741 by @licutis)
 - **AbortController reset** — Prevents infinite "Generator aborted" loops after session abort (PR #627 by @TranslateMe)
