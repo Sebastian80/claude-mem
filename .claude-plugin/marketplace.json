@@ -10,10 +10,10 @@
   "plugins": [
     {
       "name": "claude-mem",
-      "version": "9.1.1-ser.5",
+      "version": "0.1.0",
       "source": "./plugin",
       "description": "Persistent memory system for Claude Code - with observation batching"
     }
   ],
-  "version": "9.1.1-ser.5"
+  "version": "0.1.0"
 }
