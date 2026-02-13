@@ -86,10 +86,60 @@ export class ChromaSync {
   private readonly BATCH_SIZE = 100;
   private connectionPromise: Promise<void> | null = null;
 
+  /** Valid collection name prefix — all claude-mem collections use cm__<project> */
+  private static readonly COLLECTION_PREFIX = 'cm__';
+
   // Windows: Chroma disabled due to MCP SDK spawning console popups
   // See: https://github.com/anthropics/claude-mem/issues/675
   // Will be re-enabled when we migrate to persistent HTTP server
   private readonly disabled: boolean;
+
+  /**
+   * Identify orphaned collections that don't follow the cm__<project> naming convention.
+   * Orphaned collections are created when chroma-mcp is killed mid-write (SIGKILL)
+   * and ChromaDB's get_or_create_collection creates a collection named with a UUID
+   * on the corrupted SQLite state (journal_mode=delete, not crash-safe).
+   */
+  static identifyOrphanedCollections(collectionNames: string[]): string[] {
+    return collectionNames.filter(name => !name.startsWith(ChromaSync.COLLECTION_PREFIX));
+  }
+
+  /**
+   * Identify embedding document IDs to prune based on a retention cap.
+   * Groups documents by source item (sqlite_id + doc_type), sorts by age,
+   * and returns all document IDs belonging to items beyond the cap.
+   *
+   * @param metadatas - Array of {docId, sqlite_id, doc_type, created_at_epoch}
+   * @param maxItems  - Maximum source items to retain. 0 = unlimited.
+   * @returns Array of document IDs to delete from Chroma
+   */
+  static identifyDocumentsToPrune(
+    metadatas: Array<{ docId: string; sqlite_id: number; doc_type: string; created_at_epoch: number }>,
+    maxItems: number
+  ): string[] {
+    if (maxItems <= 0 || metadatas.length === 0) return [];
+
+    // Group documents by source item (sqlite_id + doc_type)
+    const sourceItems = new Map<string, { epoch: number; docIds: string[] }>();
+
+    for (const meta of metadatas) {
+      const key = `${meta.doc_type}:${meta.sqlite_id}`;
+      const existing = sourceItems.get(key);
+      if (existing) {
+        existing.docIds.push(meta.docId);
+      } else {
+        sourceItems.set(key, { epoch: meta.created_at_epoch, docIds: [meta.docId] });
+      }
+    }
+
+    if (sourceItems.size <= maxItems) return [];
+
+    // Sort source items by epoch descending (newest first), keep the top maxItems
+    const sorted = Array.from(sourceItems.values()).sort((a, b) => b.epoch - a.epoch);
+    const toPrune = sorted.slice(maxItems);
+
+    return toPrune.flatMap(item => item.docIds);
+  }
 
   constructor(project: string) {
     this.project = project;
@@ -302,6 +352,15 @@ export class ChromaSync {
       });
 
       logger.debug('CHROMA_SYNC', 'Collection exists', { collection: this.collectionName });
+
+      // Reconciliation: clean up orphaned collections on every ensureCollection call.
+      // Orphans are created when chroma-mcp is killed mid-write (SQLite corruption).
+      // They block WAL auto-purge indefinitely (ChromaDB bug #2605).
+      await this.cleanOrphanedCollections();
+
+      // Enforce retention cap: prune oldest embeddings to bound memory usage.
+      // ChromaDB loads all HNSW indexes into memory with no eviction.
+      await this.enforceRetentionCap();
     } catch (error) {
       // Check if this is a connection error - don't try to create collection
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -348,6 +407,132 @@ export class ChromaSync {
         logger.error('CHROMA_SYNC', 'Failed to create collection', { collection: this.collectionName }, createError as Error);
         throw new Error(`Collection creation failed: ${createError instanceof Error ? createError.message : String(createError)}`);
       }
+    }
+  }
+
+  /**
+   * Delete any collections that don't match the cm__* naming convention.
+   * Non-critical: logs errors but never throws (orphan cleanup is best-effort).
+   */
+  private async cleanOrphanedCollections(): Promise<void> {
+    if (!this.client) return;
+
+    try {
+      const result = await this.client.callTool({
+        name: 'chroma_list_collections',
+        arguments: {}
+      });
+
+      const data = result.content[0];
+      if (data.type !== 'text') return;
+
+      const parsed = JSON.parse(data.text);
+      const collectionNames: string[] = Array.isArray(parsed)
+        ? parsed.map((c: any) => typeof c === 'string' ? c : c.name).filter(Boolean)
+        : [];
+
+      const orphans = ChromaSync.identifyOrphanedCollections(collectionNames);
+
+      for (const orphanName of orphans) {
+        try {
+          await this.client.callTool({
+            name: 'chroma_delete_collection',
+            arguments: { collection_name: orphanName }
+          });
+          logger.warn('CHROMA_SYNC', 'Deleted orphaned collection', { collection: orphanName });
+        } catch (deleteError) {
+          logger.error('CHROMA_SYNC', 'Failed to delete orphaned collection',
+            { collection: orphanName }, deleteError as Error);
+        }
+      }
+
+      if (orphans.length > 0) {
+        logger.info('CHROMA_SYNC', 'Orphan cleanup complete', { deleted: orphans.length });
+      }
+    } catch (error) {
+      // Orphan cleanup is best-effort — don't block normal operation
+      logger.debug('CHROMA_SYNC', 'Orphan cleanup skipped', {}, error as Error);
+    }
+  }
+
+  /**
+   * Prune oldest embeddings when source item count exceeds CLAUDE_MEM_CHROMA_MAX_ITEMS.
+   * Observations, summaries, and prompts remain in SQLite — only vector embeddings are removed.
+   * Non-critical: logs errors but never throws.
+   */
+  private async enforceRetentionCap(): Promise<void> {
+    if (!this.client) return;
+
+    const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+    const maxItems = parseInt(settings.CLAUDE_MEM_CHROMA_MAX_ITEMS, 10);
+    if (!maxItems || maxItems <= 0) return; // 0 or invalid = unlimited
+
+    try {
+      // Fetch all document IDs and metadata from our collection
+      const allMetas: Array<{ docId: string; sqlite_id: number; doc_type: string; created_at_epoch: number }> = [];
+      let offset = 0;
+      const limit = 1000;
+
+      while (true) {
+        const result = await this.client.callTool({
+          name: 'chroma_get_documents',
+          arguments: {
+            collection_name: this.collectionName,
+            limit,
+            offset,
+            include: ['metadatas']
+          }
+        });
+
+        const data = result.content[0];
+        if (data.type !== 'text') break;
+
+        const parsed = JSON.parse(data.text);
+        const ids = parsed.ids || [];
+        const metadatas = parsed.metadatas || [];
+
+        if (ids.length === 0) break;
+
+        for (let i = 0; i < ids.length; i++) {
+          const meta = metadatas[i];
+          if (meta?.sqlite_id && meta?.doc_type && meta?.created_at_epoch) {
+            allMetas.push({
+              docId: ids[i],
+              sqlite_id: Number(meta.sqlite_id),
+              doc_type: meta.doc_type,
+              created_at_epoch: Number(meta.created_at_epoch)
+            });
+          }
+        }
+
+        offset += limit;
+      }
+
+      const toPrune = ChromaSync.identifyDocumentsToPrune(allMetas, maxItems);
+
+      if (toPrune.length === 0) return;
+
+      // Delete in batches (chroma_delete_documents accepts an array of IDs)
+      const batchSize = 500;
+      for (let i = 0; i < toPrune.length; i += batchSize) {
+        const batch = toPrune.slice(i, i + batchSize);
+        await this.client.callTool({
+          name: 'chroma_delete_documents',
+          arguments: {
+            collection_name: this.collectionName,
+            ids: batch
+          }
+        });
+      }
+
+      logger.info('CHROMA_SYNC', 'Retention cap enforced', {
+        maxItems,
+        prunedDocuments: toPrune.length,
+        collection: this.collectionName
+      });
+    } catch (error) {
+      // Retention enforcement is best-effort — don't block normal operation
+      logger.debug('CHROMA_SYNC', 'Retention enforcement skipped', {}, error as Error);
     }
   }
 

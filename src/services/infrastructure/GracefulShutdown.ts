@@ -12,7 +12,7 @@ import http from 'http';
 import { logger } from '../../utils/logger.js';
 import {
   getDescendantProcesses,
-  forceKillProcess,
+  gracefulKillProcess,
   waitForProcessesExit,
   removePidFile
 } from './ProcessManager.js';
@@ -81,12 +81,13 @@ export async function performGracefulShutdown(config: GracefulShutdownConfig): P
     logger.error('SYSTEM', 'Error during graceful close, proceeding to force kill', {}, error as Error);
   }
 
-  // STEP 6: Force kill any remaining child processes
-  // MUST run regardless of errors above — this is the last line of defense
+  // STEP 6: Gracefully kill any remaining child processes
+  // SIGTERM first (allows subprocesses like chroma-mcp to flush SQLite writes),
+  // then SIGKILL after timeout. Prevents database corruption from hard kills.
   if (childPids.length > 0) {
-    logger.info('SYSTEM', 'Force killing remaining children');
+    logger.info('SYSTEM', 'Gracefully killing remaining children');
     for (const pid of childPids) {
-      await forceKillProcess(pid);
+      await gracefulKillProcess(pid);
     }
     // Wait for children to fully exit
     await waitForProcessesExit(childPids, 5000);

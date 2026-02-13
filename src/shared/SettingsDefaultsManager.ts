@@ -83,6 +83,8 @@ export interface SettingsDefaults {
   // Periodic Recovery Configuration
   CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED: string;   // 'true' | 'false' - enable periodic orphan recovery
   CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL: string;  // interval in milliseconds (default: 300000 = 5 minutes)
+  // Chroma Vector DB Configuration
+  CLAUDE_MEM_CHROMA_MAX_ITEMS: string;  // Max source items (observations+summaries+prompts) with embeddings. 0 = unlimited.
 }
 
 export class SettingsDefaultsManager {
@@ -152,6 +154,8 @@ export class SettingsDefaultsManager {
     // Periodic Recovery Configuration
     CLAUDE_MEM_PERIODIC_RECOVERY_ENABLED: 'true',  // On by default - auto-recover orphaned sessions
     CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL: '300000',  // 5 minutes in milliseconds
+    // Chroma Vector DB Configuration
+    CLAUDE_MEM_CHROMA_MAX_ITEMS: '50000',  // Cap at 50K source items (~200MB RAM). 0 = unlimited.
   };
 
   /**

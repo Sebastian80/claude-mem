@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { spawn } from 'child_process';
 import path from 'path';
+import { logger } from '../../src/utils/logger.js';
 import {
   writePidFile,
   readPidFile,
@@ -11,6 +12,7 @@ import {
   parseElapsedTime,
   getChildProcesses,
   getDescendantProcesses,
+  gracefulKillProcess,
   type PidInfo
 } from '../../src/services/infrastructure/index.js';
 
@@ -343,6 +345,100 @@ describe('ProcessManager', () => {
     it('should return empty for non-existent PID', async () => {
       const result = await getDescendantProcesses(999999999);
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('gracefulKillProcess', () => {
+    // Skip on Windows — SIGTERM behavior is Unix-specific
+    const isWindows = process.platform === 'win32';
+
+    // Suppress logger output during these tests
+    let logSpies: ReturnType<typeof spyOn>[] = [];
+
+    beforeEach(() => {
+      logSpies = [
+        spyOn(logger, 'info').mockImplementation(() => {}),
+        spyOn(logger, 'debug').mockImplementation(() => {}),
+        spyOn(logger, 'warn').mockImplementation(() => {}),
+        spyOn(logger, 'error').mockImplementation(() => {}),
+      ];
+    });
+
+    afterEach(() => {
+      logSpies.forEach(spy => spy.mockRestore());
+    });
+
+    it('should send SIGTERM and wait for process to exit gracefully', async () => {
+      if (isWindows) return;
+
+      // Spawn a subprocess that traps SIGTERM and exits cleanly
+      const child = spawn('bash', ['-c', 'trap "exit 0" TERM; while true; do sleep 0.1; done'], {
+        stdio: 'ignore',
+        detached: false
+      });
+
+      expect(child.pid).toBeDefined();
+      const pid = child.pid!;
+
+      // Verify process is alive
+      expect(() => process.kill(pid, 0)).not.toThrow();
+
+      // Gracefully kill — should exit via SIGTERM without needing SIGKILL
+      await gracefulKillProcess(pid, 3000);
+
+      // Process should be dead
+      expect(() => process.kill(pid, 0)).toThrow();
+    });
+
+    it('should fall back to SIGKILL when process ignores SIGTERM', async () => {
+      if (isWindows) return;
+
+      // Spawn a subprocess that IGNORES SIGTERM
+      const child = spawn('bash', ['-c', 'trap "" TERM; while true; do sleep 0.1; done'], {
+        stdio: 'ignore',
+        detached: false
+      });
+
+      expect(child.pid).toBeDefined();
+      const pid = child.pid!;
+
+      // Verify process is alive
+      expect(() => process.kill(pid, 0)).not.toThrow();
+
+      // Gracefully kill with short timeout — SIGTERM will be ignored, should SIGKILL
+      await gracefulKillProcess(pid, 500);
+
+      // Process must be dead even though it ignored SIGTERM
+      // Give a tiny window for SIGKILL to take effect
+      await new Promise(r => setTimeout(r, 100));
+      expect(() => process.kill(pid, 0)).toThrow();
+    });
+
+    it('should handle already-exited process without throwing', async () => {
+      if (isWindows) return;
+
+      // Spawn a process that exits immediately
+      const child = spawn('bash', ['-c', 'exit 0'], {
+        stdio: 'ignore',
+        detached: false
+      });
+
+      // Wait for it to exit
+      await new Promise<void>((resolve) => {
+        child.on('exit', () => resolve());
+      });
+
+      const pid = child.pid!;
+
+      // Should not throw when process is already dead
+      await expect(gracefulKillProcess(pid, 1000)).resolves.toBeUndefined();
+    });
+
+    it('should reject invalid PIDs', async () => {
+      // Invalid PIDs should return without error (same as forceKillProcess)
+      await expect(gracefulKillProcess(-1, 1000)).resolves.toBeUndefined();
+      await expect(gracefulKillProcess(0, 1000)).resolves.toBeUndefined();
+      await expect(gracefulKillProcess(1.5, 1000)).resolves.toBeUndefined();
     });
   });
 });

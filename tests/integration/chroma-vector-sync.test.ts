@@ -371,6 +371,175 @@ describe('ChromaSync Vector Sync Integration', () => {
     });
   });
 
+  describe('Orphaned collection cleanup', () => {
+    /**
+     * Prevents recurrence of the Feb 3 incident where killing chroma-mcp
+     * mid-write with SIGKILL caused SQLite corruption (journal_mode=delete),
+     * leading to get_or_create_collection creating an orphaned collection
+     * named with the UUID of the main collection. The orphaned collection
+     * blocked WAL auto-purge for 10 days (ChromaDB bug #2605).
+     *
+     * Fix: ensureCollection() lists all collections and deletes any that
+     * don't match the cm__* naming convention — a reconciliation loop
+     * pattern (same as Kubernetes controller startup cleanup).
+     */
+    it('should identify orphaned collections by name pattern', async () => {
+      const { ChromaSync } = await import('../../src/services/sync/ChromaSync.js');
+
+      // The static method should identify orphans from a list of collection names
+      const collections = [
+        'cm__claude-mem',           // Valid: matches cm__* prefix
+        'cm__other-project',        // Valid: different project, still cm__*
+        'f12ddb9c-caa8-43d7-a5d8-170ea8276a98',  // Orphan: UUID name
+        'random-collection',        // Orphan: no cm__ prefix
+      ];
+
+      const orphans = ChromaSync.identifyOrphanedCollections(collections);
+
+      expect(orphans).toContain('f12ddb9c-caa8-43d7-a5d8-170ea8276a98');
+      expect(orphans).toContain('random-collection');
+      expect(orphans).not.toContain('cm__claude-mem');
+      expect(orphans).not.toContain('cm__other-project');
+      expect(orphans).toHaveLength(2);
+    });
+
+    it('should return empty array when all collections are valid', async () => {
+      const { ChromaSync } = await import('../../src/services/sync/ChromaSync.js');
+
+      const collections = ['cm__project-a', 'cm__project-b'];
+      const orphans = ChromaSync.identifyOrphanedCollections(collections);
+      expect(orphans).toEqual([]);
+    });
+
+    it('should return empty array for empty input', async () => {
+      const { ChromaSync } = await import('../../src/services/sync/ChromaSync.js');
+
+      const orphans = ChromaSync.identifyOrphanedCollections([]);
+      expect(orphans).toEqual([]);
+    });
+
+    it('should handle collections with only cm__ prefix', async () => {
+      const { ChromaSync } = await import('../../src/services/sync/ChromaSync.js');
+
+      // Edge case: single valid collection
+      const orphans = ChromaSync.identifyOrphanedCollections(['cm__my-project']);
+      expect(orphans).toEqual([]);
+    });
+  });
+
+  describe('Embedding retention cap', () => {
+    /**
+     * ChromaDB loads all HNSW indexes into memory at startup with no eviction.
+     * Without a cap, embeddings accumulate indefinitely (~500MB+ RAM).
+     * The retention cap prunes the oldest source items' embeddings while
+     * keeping all data in SQLite (FTS5 keyword search still covers everything).
+     */
+    it('should identify document IDs to prune when over cap', async () => {
+      const { ChromaSync } = await import('../../src/services/sync/ChromaSync.js');
+
+      // 5 source items, each with 2 embedding documents
+      const metadatas = [
+        // Oldest observation (epoch 100) — should be pruned first
+        { docId: 'obs_1_narrative', sqlite_id: 1, doc_type: 'observation', created_at_epoch: 100 },
+        { docId: 'obs_1_fact_0',   sqlite_id: 1, doc_type: 'observation', created_at_epoch: 100 },
+        // Second oldest (epoch 200)
+        { docId: 'obs_2_narrative', sqlite_id: 2, doc_type: 'observation', created_at_epoch: 200 },
+        { docId: 'obs_2_fact_0',   sqlite_id: 2, doc_type: 'observation', created_at_epoch: 200 },
+        // Summary (epoch 300)
+        { docId: 'summary_3_request', sqlite_id: 3, doc_type: 'session_summary', created_at_epoch: 300 },
+        { docId: 'summary_3_learned', sqlite_id: 3, doc_type: 'session_summary', created_at_epoch: 300 },
+        // Recent observation (epoch 400)
+        { docId: 'obs_4_narrative', sqlite_id: 4, doc_type: 'observation', created_at_epoch: 400 },
+        { docId: 'obs_4_fact_0',   sqlite_id: 4, doc_type: 'observation', created_at_epoch: 400 },
+        // Most recent prompt (epoch 500)
+        { docId: 'prompt_5',       sqlite_id: 5, doc_type: 'user_prompt', created_at_epoch: 500 },
+      ];
+
+      // Cap at 3 source items — should prune the 2 oldest (sqlite_id 1 and 2)
+      const toPrune = ChromaSync.identifyDocumentsToPrune(metadatas, 3);
+
+      expect(toPrune).toContain('obs_1_narrative');
+      expect(toPrune).toContain('obs_1_fact_0');
+      expect(toPrune).toContain('obs_2_narrative');
+      expect(toPrune).toContain('obs_2_fact_0');
+      expect(toPrune).toHaveLength(4);
+
+      // Should NOT contain recent items
+      expect(toPrune).not.toContain('summary_3_request');
+      expect(toPrune).not.toContain('obs_4_narrative');
+      expect(toPrune).not.toContain('prompt_5');
+    });
+
+    it('should return empty when under cap', async () => {
+      const { ChromaSync } = await import('../../src/services/sync/ChromaSync.js');
+
+      const metadatas = [
+        { docId: 'obs_1_narrative', sqlite_id: 1, doc_type: 'observation', created_at_epoch: 100 },
+        { docId: 'prompt_2',       sqlite_id: 2, doc_type: 'user_prompt', created_at_epoch: 200 },
+      ];
+
+      // Cap at 5 — only 2 items, nothing to prune
+      const toPrune = ChromaSync.identifyDocumentsToPrune(metadatas, 5);
+      expect(toPrune).toEqual([]);
+    });
+
+    it('should return empty when cap is 0 (unlimited)', async () => {
+      const { ChromaSync } = await import('../../src/services/sync/ChromaSync.js');
+
+      const metadatas = [
+        { docId: 'obs_1_narrative', sqlite_id: 1, doc_type: 'observation', created_at_epoch: 100 },
+      ];
+
+      const toPrune = ChromaSync.identifyDocumentsToPrune(metadatas, 0);
+      expect(toPrune).toEqual([]);
+    });
+
+    it('should return empty for empty input', async () => {
+      const { ChromaSync } = await import('../../src/services/sync/ChromaSync.js');
+
+      const toPrune = ChromaSync.identifyDocumentsToPrune([], 10);
+      expect(toPrune).toEqual([]);
+    });
+
+    it('should group documents by source item (sqlite_id + doc_type)', async () => {
+      const { ChromaSync } = await import('../../src/services/sync/ChromaSync.js');
+
+      // Same sqlite_id but different doc_types are DIFFERENT source items
+      const metadatas = [
+        { docId: 'obs_1_narrative',    sqlite_id: 1, doc_type: 'observation',      created_at_epoch: 100 },
+        { docId: 'summary_1_request',  sqlite_id: 1, doc_type: 'session_summary',  created_at_epoch: 200 },
+        { docId: 'prompt_1',           sqlite_id: 1, doc_type: 'user_prompt',       created_at_epoch: 300 },
+      ];
+
+      // Cap at 2 — oldest source item (obs type, epoch 100) gets pruned
+      const toPrune = ChromaSync.identifyDocumentsToPrune(metadatas, 2);
+      expect(toPrune).toEqual(['obs_1_narrative']);
+    });
+
+    it('should have retention pruning wired into source code', async () => {
+      const sourceFile = await Bun.file(
+        new URL('../../src/services/sync/ChromaSync.ts', import.meta.url)
+      ).text();
+
+      expect(sourceFile).toContain('identifyDocumentsToPrune');
+      expect(sourceFile).toContain('CHROMA_MAX_ITEMS');
+      expect(sourceFile).toContain('chroma_delete_documents');
+    });
+  });
+
+  describe('Orphaned collection source verification', () => {
+    it('should have orphan cleanup wired into ensureCollection', async () => {
+      // Verify the source code calls orphan cleanup during collection setup
+      const sourceFile = await Bun.file(
+        new URL('../../src/services/sync/ChromaSync.ts', import.meta.url)
+      ).text();
+
+      expect(sourceFile).toContain('identifyOrphanedCollections');
+      expect(sourceFile).toContain('chroma_list_collections');
+      expect(sourceFile).toContain('chroma_delete_collection');
+    });
+  });
+
   describe('Process leak prevention (Issue #761)', () => {
     /**
      * Regression test for GitHub Issue #761:

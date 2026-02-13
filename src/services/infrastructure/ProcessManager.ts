@@ -148,6 +148,59 @@ function parseNumberLines(stdout: string): number[] {
 }
 
 /**
+ * Gracefully kill a process by sending SIGTERM first, then SIGKILL after timeout.
+ * This prevents SQLite corruption in subprocesses that use journal_mode=delete
+ * (e.g., chroma-mcp) by giving them a chance to flush writes before dying.
+ *
+ * Windows: delegates to forceKillProcess (taskkill /T /F handles its own cleanup)
+ * Unix: SIGTERM → poll for exit → SIGKILL fallback
+ */
+export async function gracefulKillProcess(pid: number, timeoutMs: number = 3000): Promise<void> {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    logger.warn('SYSTEM', 'Invalid PID for graceful kill', { pid });
+    return;
+  }
+
+  if (process.platform === 'win32') {
+    return forceKillProcess(pid);
+  }
+
+  // Send SIGTERM first
+  try {
+    process.kill(pid, 'SIGTERM');
+    logger.info('SYSTEM', 'Sent SIGTERM to process', { pid });
+  } catch (error) {
+    // Process already exited
+    logger.debug('SYSTEM', 'Process already exited before SIGTERM', { pid });
+    return;
+  }
+
+  // Poll for exit within timeout
+  const start = Date.now();
+  const pollInterval = 100;
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      process.kill(pid, 0); // Check if alive
+    } catch {
+      // Process exited gracefully
+      logger.info('SYSTEM', 'Process exited gracefully after SIGTERM', { pid });
+      return;
+    }
+    await new Promise(r => setTimeout(r, pollInterval));
+  }
+
+  // Timeout exceeded — force kill
+  logger.warn('SYSTEM', 'Process did not exit after SIGTERM, sending SIGKILL', { pid, timeoutMs });
+  try {
+    process.kill(pid, 'SIGKILL');
+    logger.info('SYSTEM', 'Sent SIGKILL to process', { pid });
+  } catch (error) {
+    logger.debug('SYSTEM', 'Process exited during SIGKILL attempt', { pid });
+  }
+}
+
+/**
  * Force kill a process by PID
  * Windows: uses taskkill /F /T to kill process tree
  * Unix: uses SIGKILL
