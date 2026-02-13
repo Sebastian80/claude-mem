@@ -2,9 +2,7 @@
  * VectorStoreFactory: Creates the appropriate VectorStore backend
  *
  * Reads CLAUDE_MEM_VECTOR_BACKEND from settings and instantiates the correct adapter.
- * Phase 1: Only chroma-stdio is available.
- * Phase 2: Adds chroma-http.
- * Future: sqlite-vec.
+ * Unimplemented backends fall back to chroma-stdio with a warning.
  */
 
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
@@ -28,12 +26,10 @@ export class VectorStoreFactory {
 
     switch (backend) {
       case 'chroma-http':
-        // Phase 2: ChromaHttpAdapter will be wired here
         logger.warn('VECTOR', 'chroma-http not yet implemented, falling back to chroma-stdio', { project });
         return new ChromaStdioAdapter(project);
 
       case 'sqlite-vec':
-        // Future: SqliteVecAdapter
         logger.warn('VECTOR', 'sqlite-vec not yet implemented, falling back to chroma-stdio', { project });
         return new ChromaStdioAdapter(project);
 

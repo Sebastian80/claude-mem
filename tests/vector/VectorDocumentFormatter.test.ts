@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { ChromaDocumentFormatter } from '../../src/services/vector/ChromaDocumentFormatter.js';
-import type { StoredObservation, StoredSummary, StoredUserPrompt } from '../../src/services/vector/ChromaDocumentFormatter.js';
+import { VectorDocumentFormatter } from '../../src/services/vector/VectorDocumentFormatter.js';
+import type { StoredObservation, StoredSummary, StoredUserPrompt } from '../../src/services/vector/VectorDocumentFormatter.js';
 
 const baseObservation: StoredObservation = {
   id: 42,
@@ -48,10 +48,10 @@ const basePrompt: StoredUserPrompt = {
   project: 'test-project'
 };
 
-describe('ChromaDocumentFormatter', () => {
+describe('VectorDocumentFormatter', () => {
   describe('formatObservationDocs', () => {
     it('should create a narrative document', () => {
-      const docs = ChromaDocumentFormatter.formatObservationDocs(baseObservation);
+      const docs = VectorDocumentFormatter.formatObservationDocs(baseObservation);
       const narrativeDoc = docs.find(d => d.id === 'obs_42_narrative');
 
       expect(narrativeDoc).toBeDefined();
@@ -63,7 +63,7 @@ describe('ChromaDocumentFormatter', () => {
     });
 
     it('should create fact documents', () => {
-      const docs = ChromaDocumentFormatter.formatObservationDocs(baseObservation);
+      const docs = VectorDocumentFormatter.formatObservationDocs(baseObservation);
       const factDocs = docs.filter(d => d.id.includes('_fact_'));
 
       expect(factDocs).toHaveLength(2);
@@ -76,7 +76,7 @@ describe('ChromaDocumentFormatter', () => {
     });
 
     it('should include concepts and files in metadata', () => {
-      const docs = ChromaDocumentFormatter.formatObservationDocs(baseObservation);
+      const docs = VectorDocumentFormatter.formatObservationDocs(baseObservation);
       const narrativeDoc = docs.find(d => d.id === 'obs_42_narrative')!;
 
       expect(narrativeDoc.metadata.concepts).toBe('authentication,security');
@@ -86,7 +86,7 @@ describe('ChromaDocumentFormatter', () => {
 
     it('should include text document when text field exists', () => {
       const obsWithText = { ...baseObservation, text: 'Some raw text' };
-      const docs = ChromaDocumentFormatter.formatObservationDocs(obsWithText);
+      const docs = VectorDocumentFormatter.formatObservationDocs(obsWithText);
       const textDoc = docs.find(d => d.id === 'obs_42_text');
 
       expect(textDoc).toBeDefined();
@@ -105,13 +105,13 @@ describe('ChromaDocumentFormatter', () => {
         files_modified: null,
         subtitle: null
       };
-      const docs = ChromaDocumentFormatter.formatObservationDocs(emptyObs);
+      const docs = VectorDocumentFormatter.formatObservationDocs(emptyObs);
       expect(docs).toHaveLength(0);
     });
 
     it('should handle empty JSON arrays in fields', () => {
       const obs = { ...baseObservation, facts: '[]', concepts: '[]', files_read: '[]', files_modified: '[]' };
-      const docs = ChromaDocumentFormatter.formatObservationDocs(obs);
+      const docs = VectorDocumentFormatter.formatObservationDocs(obs);
 
       // Should only have narrative (no facts, no text)
       expect(docs).toHaveLength(1);
@@ -124,7 +124,7 @@ describe('ChromaDocumentFormatter', () => {
 
     it('should use defaults for missing type/title', () => {
       const obs = { ...baseObservation, type: '', title: null };
-      const docs = ChromaDocumentFormatter.formatObservationDocs(obs);
+      const docs = VectorDocumentFormatter.formatObservationDocs(obs);
       const doc = docs[0];
 
       expect(doc.metadata.type).toBe('discovery');
@@ -134,7 +134,7 @@ describe('ChromaDocumentFormatter', () => {
 
   describe('formatSummaryDocs', () => {
     it('should create documents for all summary fields', () => {
-      const docs = ChromaDocumentFormatter.formatSummaryDocs(baseSummary);
+      const docs = VectorDocumentFormatter.formatSummaryDocs(baseSummary);
 
       expect(docs).toHaveLength(6); // request, investigated, learned, completed, next_steps, notes
       expect(docs.map(d => d.metadata.field_type)).toEqual([
@@ -143,14 +143,14 @@ describe('ChromaDocumentFormatter', () => {
     });
 
     it('should set correct IDs', () => {
-      const docs = ChromaDocumentFormatter.formatSummaryDocs(baseSummary);
+      const docs = VectorDocumentFormatter.formatSummaryDocs(baseSummary);
 
       expect(docs[0].id).toBe('summary_10_request');
       expect(docs[1].id).toBe('summary_10_investigated');
     });
 
     it('should include correct metadata', () => {
-      const docs = ChromaDocumentFormatter.formatSummaryDocs(baseSummary);
+      const docs = VectorDocumentFormatter.formatSummaryDocs(baseSummary);
       const doc = docs[0];
 
       expect(doc.metadata.sqlite_id).toBe(10);
@@ -162,7 +162,7 @@ describe('ChromaDocumentFormatter', () => {
 
     it('should skip null fields', () => {
       const summary = { ...baseSummary, investigated: null, notes: null };
-      const docs = ChromaDocumentFormatter.formatSummaryDocs(summary);
+      const docs = VectorDocumentFormatter.formatSummaryDocs(summary);
 
       expect(docs).toHaveLength(4); // request, learned, completed, next_steps
       expect(docs.map(d => d.metadata.field_type)).toEqual([
@@ -180,21 +180,21 @@ describe('ChromaDocumentFormatter', () => {
         next_steps: null,
         notes: null
       };
-      const docs = ChromaDocumentFormatter.formatSummaryDocs(emptySummary);
+      const docs = VectorDocumentFormatter.formatSummaryDocs(emptySummary);
       expect(docs).toHaveLength(0);
     });
   });
 
   describe('formatUserPromptDoc', () => {
     it('should create a single document', () => {
-      const doc = ChromaDocumentFormatter.formatUserPromptDoc(basePrompt);
+      const doc = VectorDocumentFormatter.formatUserPromptDoc(basePrompt);
 
       expect(doc.id).toBe('prompt_7');
       expect(doc.document).toBe('How does the authentication module work?');
     });
 
     it('should include correct metadata', () => {
-      const doc = ChromaDocumentFormatter.formatUserPromptDoc(basePrompt);
+      const doc = VectorDocumentFormatter.formatUserPromptDoc(basePrompt);
 
       expect(doc.metadata.sqlite_id).toBe(7);
       expect(doc.metadata.doc_type).toBe('user_prompt');

@@ -14,7 +14,7 @@ export type VectorBackend = 'chroma-stdio' | 'chroma-http' | 'sqlite-vec';
 
 // --- Document types ---
 
-export interface ChromaDocument {
+export interface VectorDocument {
   id: string;
   document: string;
   metadata: Record<string, string | number>;
@@ -100,7 +100,7 @@ export interface VectorStore {
   query(text: string, limit: number, filter?: VectorFilter): Promise<VectorQueryResult>;
 
   /** Batch add documents (used by BackfillService) */
-  addDocuments(documents: ChromaDocument[]): Promise<void>;
+  addDocuments(documents: VectorDocument[]): Promise<void>;
 
   /** Get existing document IDs by type (used by BackfillService for delta sync) */
   getExistingIds(): Promise<ExistingVectorIds>;

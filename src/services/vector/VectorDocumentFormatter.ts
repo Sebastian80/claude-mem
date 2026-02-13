@@ -1,11 +1,12 @@
 /**
- * ChromaDocumentFormatter: Pure formatting functions for vector documents
+ * VectorDocumentFormatter: Pure formatting functions for vector documents
  *
- * Extracts observation/summary/prompt → ChromaDocument conversion from ChromaSync.
- * Static methods, no state, no side effects. Shared by all VectorStore adapters.
+ * Converts SQLite rows (observations, summaries, prompts) into VectorDocument
+ * instances for indexing. Static methods, no state, no side effects.
+ * Shared by all VectorStore adapters.
  */
 
-import type { ChromaDocument } from './VectorStore.js';
+import type { VectorDocument } from './VectorStore.js';
 
 // --- Stored record types (SQLite row shapes) ---
 
@@ -57,13 +58,13 @@ export interface StoredUserPrompt {
 
 // --- Formatting functions ---
 
-export class ChromaDocumentFormatter {
+export class VectorDocumentFormatter {
   /**
    * Format observation into Chroma documents (granular approach).
    * Each semantic field becomes a separate vector document.
    */
-  static formatObservationDocs(obs: StoredObservation): ChromaDocument[] {
-    const documents: ChromaDocument[] = [];
+  static formatObservationDocs(obs: StoredObservation): VectorDocument[] {
+    const documents: VectorDocument[] = [];
 
     const facts = obs.facts ? JSON.parse(obs.facts) : [];
     const concepts = obs.concepts ? JSON.parse(obs.concepts) : [];
@@ -124,8 +125,8 @@ export class ChromaDocumentFormatter {
    * Format summary into Chroma documents (granular approach).
    * Each summary field becomes a separate vector document.
    */
-  static formatSummaryDocs(summary: StoredSummary): ChromaDocument[] {
-    const documents: ChromaDocument[] = [];
+  static formatSummaryDocs(summary: StoredSummary): VectorDocument[] {
+    const documents: VectorDocument[] = [];
 
     const baseMetadata: Record<string, string | number> = {
       sqlite_id: summary.id,
@@ -190,7 +191,7 @@ export class ChromaDocumentFormatter {
   /**
    * Format user prompt into a single Chroma document.
    */
-  static formatUserPromptDoc(prompt: StoredUserPrompt): ChromaDocument {
+  static formatUserPromptDoc(prompt: StoredUserPrompt): VectorDocument {
     return {
       id: `prompt_${prompt.id}`,
       document: prompt.prompt_text,

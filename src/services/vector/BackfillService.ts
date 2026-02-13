@@ -6,9 +6,9 @@
  * used for recovery/maintenance after crashes or fresh vector store setup.
  */
 
-import { ChromaDocumentFormatter } from './ChromaDocumentFormatter.js';
-import type { StoredObservation, StoredSummary, StoredUserPrompt } from './ChromaDocumentFormatter.js';
-import type { VectorStore, ChromaDocument } from './VectorStore.js';
+import { VectorDocumentFormatter } from './VectorDocumentFormatter.js';
+import type { StoredObservation, StoredSummary, StoredUserPrompt } from './VectorDocumentFormatter.js';
+import type { VectorStore, VectorDocument } from './VectorStore.js';
 import type { SessionStore } from '../sqlite/SessionStore.js';
 import { logger } from '../../utils/logger.js';
 
@@ -62,9 +62,9 @@ export class BackfillService {
       total: total.count
     });
 
-    const docs: ChromaDocument[] = [];
+    const docs: VectorDocument[] = [];
     for (const obs of missing) {
-      docs.push(...ChromaDocumentFormatter.formatObservationDocs(obs));
+      docs.push(...VectorDocumentFormatter.formatObservationDocs(obs));
     }
 
     await this.uploadInBatches(docs, 'observations');
@@ -93,9 +93,9 @@ export class BackfillService {
       total: total.count
     });
 
-    const docs: ChromaDocument[] = [];
+    const docs: VectorDocument[] = [];
     for (const summary of missing) {
-      docs.push(...ChromaDocumentFormatter.formatSummaryDocs(summary));
+      docs.push(...VectorDocumentFormatter.formatSummaryDocs(summary));
     }
 
     await this.uploadInBatches(docs, 'summaries');
@@ -129,15 +129,15 @@ export class BackfillService {
       total: total.count
     });
 
-    const docs: ChromaDocument[] = [];
+    const docs: VectorDocument[] = [];
     for (const prompt of missing) {
-      docs.push(ChromaDocumentFormatter.formatUserPromptDoc(prompt));
+      docs.push(VectorDocumentFormatter.formatUserPromptDoc(prompt));
     }
 
     await this.uploadInBatches(docs, 'prompts');
   }
 
-  private async uploadInBatches(docs: ChromaDocument[], label: string): Promise<void> {
+  private async uploadInBatches(docs: VectorDocument[], label: string): Promise<void> {
     for (let i = 0; i < docs.length; i += BATCH_SIZE) {
       const batch = docs.slice(i, i + BATCH_SIZE);
       await this.vectorStore.addDocuments(batch);

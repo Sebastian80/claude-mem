@@ -6,7 +6,7 @@
 export type {
   VectorStore,
   VectorBackend,
-  ChromaDocument,
+  VectorDocument,
   VectorDocumentMetadata,
   SyncObservationParams,
   SyncSummaryParams,
@@ -23,7 +23,7 @@ export { VectorStoreFactory } from './VectorStoreFactory.js';
 export { ChromaStdioAdapter } from './ChromaStdioAdapter.js';
 
 // Shared utilities
-export { ChromaDocumentFormatter } from './ChromaDocumentFormatter.js';
-export type { StoredObservation, StoredSummary, StoredUserPrompt } from './ChromaDocumentFormatter.js';
+export { VectorDocumentFormatter } from './VectorDocumentFormatter.js';
+export type { StoredObservation, StoredSummary, StoredUserPrompt } from './VectorDocumentFormatter.js';
 export { identifyOrphanedCollections, identifyDocumentsToPrune } from './collection-utils.js';
 export { BackfillService } from './BackfillService.js';

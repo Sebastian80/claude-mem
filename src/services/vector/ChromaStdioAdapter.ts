@@ -7,7 +7,6 @@
  */
 
 import { ChromaSync } from '../sync/ChromaSync.js';
-import { ChromaDocumentFormatter } from './ChromaDocumentFormatter.js';
 import type {
   VectorStore,
   SyncObservationParams,
@@ -16,7 +15,7 @@ import type {
   VectorQueryResult,
   VectorFilter,
   ExistingVectorIds,
-  ChromaDocument
+  VectorDocument
 } from './VectorStore.js';
 
 export class ChromaStdioAdapter implements VectorStore {
@@ -74,7 +73,7 @@ export class ChromaStdioAdapter implements VectorStore {
     };
   }
 
-  async addDocuments(documents: ChromaDocument[]): Promise<void> {
+  async addDocuments(documents: VectorDocument[]): Promise<void> {
     return this.chromaSync.addDocuments(documents);
   }
 
@@ -85,7 +84,6 @@ export class ChromaStdioAdapter implements VectorStore {
   async performMaintenance(): Promise<void> {
     // Maintenance (orphan cleanup, retention cap) is handled inside
     // ChromaSync.ensureCollection() which runs on every sync call.
-    // No separate maintenance call needed for the stdio adapter.
   }
 
   async close(): Promise<void> {
