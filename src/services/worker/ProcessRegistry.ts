@@ -212,7 +212,7 @@ async function killSystemOrphans(): Promise<number> {
 
   try {
     const { stdout } = await execAsync(
-      'ps -eo pid,ppid,args 2>/dev/null | grep -E "claude.*haiku|claude.*output-format" | grep -v grep'
+      'ps -eo pid,ppid,args 2>/dev/null | grep -E "claude.*haiku|claude.*output-format|chroma-mcp" | grep -v grep'
     );
 
     let killed = 0;

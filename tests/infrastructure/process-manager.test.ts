@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
+import { spawn } from 'child_process';
 import path from 'path';
 import {
   writePidFile,
@@ -8,6 +9,8 @@ import {
   removePidFile,
   getPlatformTimeout,
   parseElapsedTime,
+  getChildProcesses,
+  getDescendantProcesses,
   type PidInfo
 } from '../../src/services/infrastructure/index.js';
 
@@ -161,6 +164,49 @@ describe('ProcessManager', () => {
     });
   });
 
+  describe('getChildProcesses', () => {
+    it('should return child PIDs on Linux', async () => {
+      // Spawn a real child process that sleeps
+      const child = spawn('sleep', ['60'], { detached: false });
+      const childPid = child.pid!;
+
+      try {
+        const children = await getChildProcesses(process.pid);
+
+        // Must find our spawned child
+        expect(children).toContain(childPid);
+      } finally {
+        child.kill('SIGKILL');
+      }
+    });
+
+    it('should return empty array for process with no children', async () => {
+      // PID 1 (init) has children, but a random high PID likely doesn't
+      // Use a PID we know exists but has no children: the sleep process itself
+      const child = spawn('sleep', ['60'], { detached: false });
+      const childPid = child.pid!;
+
+      try {
+        const grandchildren = await getChildProcesses(childPid);
+        expect(grandchildren).toEqual([]);
+      } finally {
+        child.kill('SIGKILL');
+      }
+    });
+
+    it('should return empty array for invalid PID', async () => {
+      expect(await getChildProcesses(-1)).toEqual([]);
+      expect(await getChildProcesses(0)).toEqual([]);
+      expect(await getChildProcesses(1.5)).toEqual([]);
+    });
+
+    it('should return empty array for non-existent PID', async () => {
+      // Use a very high PID unlikely to exist
+      const result = await getChildProcesses(999999999);
+      expect(result).toEqual([]);
+    });
+  });
+
   describe('getPlatformTimeout', () => {
     const originalPlatform = process.platform;
 
@@ -219,6 +265,84 @@ describe('ProcessManager', () => {
       const result = getPlatformTimeout(333);
 
       expect(result).toBe(666);
+    });
+  });
+
+  describe('getDescendantProcesses', () => {
+    it('should return child and grandchild PIDs', async () => {
+      // sh -c spawns a shell (child) which spawns sleep (grandchild)
+      const child = spawn('sh', ['-c', 'sleep 60 & sleep 60 & wait'], { detached: false });
+      const shellPid = child.pid!;
+
+      // Give the shell time to spawn its children
+      await new Promise(r => setTimeout(r, 200));
+
+      try {
+        const descendants = await getDescendantProcesses(process.pid);
+
+        // Must contain the shell and both sleep processes
+        expect(descendants).toContain(shellPid);
+        // Should have at least 3 descendants from this spawn (sh + 2 sleeps)
+        const directChildren = await getChildProcesses(shellPid);
+        for (const grandchild of directChildren) {
+          expect(descendants).toContain(grandchild);
+        }
+      } finally {
+        child.kill('SIGKILL');
+        // Clean up grandchildren
+        const grandchildren = await getChildProcesses(shellPid);
+        for (const gc of grandchildren) {
+          try { process.kill(gc, 'SIGKILL'); } catch {}
+        }
+      }
+    });
+
+    it('should return PIDs in leaf-first order', async () => {
+      // sh -c creates a 2-level tree: sh → sleep
+      const child = spawn('sh', ['-c', 'sleep 60'], { detached: false });
+      const shellPid = child.pid!;
+
+      await new Promise(r => setTimeout(r, 200));
+
+      try {
+        const descendants = await getDescendantProcesses(shellPid);
+        const grandchildren = await getChildProcesses(shellPid);
+
+        // Grandchildren (sleep) must appear before the shell itself would
+        // in a full tree enumeration from process.pid
+        const allDescendants = await getDescendantProcesses(process.pid);
+        if (grandchildren.length > 0 && allDescendants.includes(shellPid)) {
+          const shellIndex = allDescendants.indexOf(shellPid);
+          for (const gc of grandchildren) {
+            const gcIndex = allDescendants.indexOf(gc);
+            expect(gcIndex).toBeLessThan(shellIndex);
+          }
+        }
+      } finally {
+        child.kill('SIGKILL');
+        const grandchildren = await getChildProcesses(shellPid);
+        for (const gc of grandchildren) {
+          try { process.kill(gc, 'SIGKILL'); } catch {}
+        }
+      }
+    });
+
+    it('should handle single-level children (same as getChildProcesses)', async () => {
+      // sleep has no children of its own
+      const child = spawn('sleep', ['60'], { detached: false });
+      const childPid = child.pid!;
+
+      try {
+        const descendants = await getDescendantProcesses(process.pid);
+        expect(descendants).toContain(childPid);
+      } finally {
+        child.kill('SIGKILL');
+      }
+    });
+
+    it('should return empty for non-existent PID', async () => {
+      const result = await getDescendantProcesses(999999999);
+      expect(result).toEqual([]);
     });
   });
 });

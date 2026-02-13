@@ -727,15 +727,18 @@ export class ChromaSync {
           break; // No more documents
         }
 
-        // Extract SQLite IDs from metadata
+        // Extract SQLite IDs from metadata, coercing to Number as defense-in-depth
+        // against non-integer values from Chroma metadata responses
         for (const meta of metadatas) {
           if (meta.sqlite_id) {
+            const id = Number(meta.sqlite_id);
+            if (!Number.isFinite(id)) continue;
             if (meta.doc_type === 'observation') {
-              observationIds.add(meta.sqlite_id);
+              observationIds.add(id);
             } else if (meta.doc_type === 'session_summary') {
-              summaryIds.add(meta.sqlite_id);
+              summaryIds.add(id);
             } else if (meta.doc_type === 'user_prompt') {
-              promptIds.add(meta.sqlite_id);
+              promptIds.add(id);
             }
           }
         }
@@ -782,10 +785,10 @@ export class ChromaSync {
     const db = new SessionStore();
 
     try {
-      // Build exclusion list for observations
+      // Build exclusion list for observations (parameterized to prevent SQL injection)
       const existingObsIds = Array.from(existing.observations);
       const obsExclusionClause = existingObsIds.length > 0
-        ? `AND id NOT IN (${existingObsIds.join(',')})`
+        ? `AND id NOT IN (${existingObsIds.map(() => '?').join(',')})`
         : '';
 
       // Get only observations missing from Chroma
@@ -793,7 +796,7 @@ export class ChromaSync {
         SELECT * FROM observations
         WHERE project = ? ${obsExclusionClause}
         ORDER BY id ASC
-      `).all(this.project) as StoredObservation[];
+      `).all(this.project, ...existingObsIds) as StoredObservation[];
 
       const totalObsCount = db.db.prepare(`
         SELECT COUNT(*) as count FROM observations WHERE project = ?
@@ -823,10 +826,10 @@ export class ChromaSync {
         });
       }
 
-      // Build exclusion list for summaries
+      // Build exclusion list for summaries (parameterized to prevent SQL injection)
       const existingSummaryIds = Array.from(existing.summaries);
       const summaryExclusionClause = existingSummaryIds.length > 0
-        ? `AND id NOT IN (${existingSummaryIds.join(',')})`
+        ? `AND id NOT IN (${existingSummaryIds.map(() => '?').join(',')})`
         : '';
 
       // Get only summaries missing from Chroma
@@ -834,7 +837,7 @@ export class ChromaSync {
         SELECT * FROM session_summaries
         WHERE project = ? ${summaryExclusionClause}
         ORDER BY id ASC
-      `).all(this.project) as StoredSummary[];
+      `).all(this.project, ...existingSummaryIds) as StoredSummary[];
 
       const totalSummaryCount = db.db.prepare(`
         SELECT COUNT(*) as count FROM session_summaries WHERE project = ?
@@ -864,10 +867,10 @@ export class ChromaSync {
         });
       }
 
-      // Build exclusion list for prompts
+      // Build exclusion list for prompts (parameterized to prevent SQL injection)
       const existingPromptIds = Array.from(existing.prompts);
       const promptExclusionClause = existingPromptIds.length > 0
-        ? `AND up.id NOT IN (${existingPromptIds.join(',')})`
+        ? `AND up.id NOT IN (${existingPromptIds.map(() => '?').join(',')})`
         : '';
 
       // Get only user prompts missing from Chroma
@@ -880,7 +883,7 @@ export class ChromaSync {
         JOIN sdk_sessions s ON up.content_session_id = s.content_session_id
         WHERE s.project = ? ${promptExclusionClause}
         ORDER BY up.id ASC
-      `).all(this.project) as StoredUserPrompt[];
+      `).all(this.project, ...existingPromptIds) as StoredUserPrompt[];
 
       const totalPromptCount = db.db.prepare(`
         SELECT COUNT(*) as count
@@ -1059,22 +1062,29 @@ export class ChromaSync {
       return;
     }
 
-    // Close client first
-    if (this.client) {
-      await this.client.close();
+    try {
+      if (this.client) {
+        try {
+          await this.client.close();
+        } catch (e) {
+          logger.debug('CHROMA_SYNC', 'Client close error (expected if already dead)', {}, e as Error);
+        }
+      }
+
+      if (this.transport) {
+        try {
+          await this.transport.close();
+        } catch (e) {
+          logger.debug('CHROMA_SYNC', 'Transport close error (expected if already dead)', {}, e as Error);
+        }
+      }
+
+      logger.info('CHROMA_SYNC', 'Chroma client and subprocess closed', { project: this.project });
+    } finally {
+      this.connected = false;
+      this.client = null;
+      this.transport = null;
+      this.connectionPromise = null;
     }
-
-    // Explicitly close transport to kill subprocess
-    if (this.transport) {
-      await this.transport.close();
-    }
-
-    logger.info('CHROMA_SYNC', 'Chroma client and subprocess closed', { project: this.project });
-
-    // Always reset state
-    this.connected = false;
-    this.client = null;
-    this.transport = null;
-    this.connectionPromise = null;
   }
 }

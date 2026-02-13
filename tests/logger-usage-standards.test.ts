@@ -37,6 +37,8 @@ const EXCLUDED_PATTERNS = [
   /user-message-hook\.ts$/,  // Deprecated - kept for reference only, not registered in hooks.json
   /cli\/hook-command\.ts$/,  // CLI hook command uses console.log/error for hook protocol output
   /cli\/handlers\/user-message\.ts$/,  // User message handler uses console.error for user-visible context
+  /ExponentialBackoff\.ts$/,            // Pure delay calculation utility
+  /FallbackErrorHandler\.ts$/,          // Pure error classification utility
 ];
 
 // Files that should always use logger (core business logic)

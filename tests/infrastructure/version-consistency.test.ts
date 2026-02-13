@@ -15,18 +15,19 @@ const projectRoot = path.resolve(__dirname, '../..');
  * - Worker returns built-in version from bundled code
  * - Mismatch triggers restart on every hook call
  */
+// Semver with optional prerelease suffix (e.g. 9.1.1-ser.4)
+const SEMVER_PATTERN = /^\d+\.\d+\.\d+(-[a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)?$/;
+
 describe('Version Consistency', () => {
-  let rootVersion: string;
+  // Extract rootVersion before all tests so downstream tests aren't affected by first-test failure
+  const packageJsonPath = path.join(projectRoot, 'package.json');
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+  const rootVersion: string = packageJson.version;
 
   it('should read version from root package.json', () => {
-    const packageJsonPath = path.join(projectRoot, 'package.json');
     expect(existsSync(packageJsonPath)).toBe(true);
-    
-    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
-    expect(packageJson.version).toBeDefined();
-    expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/);
-    
-    rootVersion = packageJson.version;
+    expect(rootVersion).toBeDefined();
+    expect(rootVersion).toMatch(SEMVER_PATTERN);
   });
 
   it('should have matching version in plugin/package.json', () => {
@@ -97,10 +98,10 @@ describe('Version Consistency', () => {
   });
 
   it('should validate version format is semver compliant', () => {
-    // Ensure version follows semantic versioning: MAJOR.MINOR.PATCH
-    expect(rootVersion).toMatch(/^\d+\.\d+\.\d+$/);
-    
-    const [major, minor, patch] = rootVersion.split('.').map(Number);
+    expect(rootVersion).toMatch(SEMVER_PATTERN);
+
+    // Extract MAJOR.MINOR.PATCH (ignoring prerelease suffix)
+    const [major, minor, patch] = rootVersion.split('-')[0].split('.').map(Number);
     expect(major).toBeGreaterThanOrEqual(0);
     expect(minor).toBeGreaterThanOrEqual(0);
     expect(patch).toBeGreaterThanOrEqual(0);

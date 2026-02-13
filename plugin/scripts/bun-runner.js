@@ -9,6 +9,10 @@
  *
  * Usage: node bun-runner.js <script> [args...]
  *
+ * Stdin handling: Claude Code pipes JSON to PostToolUse hooks via stdin.
+ * Bun's libuv fstat() crashes on inherited pipe file descriptors, so we
+ * buffer stdin first and re-pipe it to the child process.
+ *
  * Fixes #818: Worker fails to start on fresh install
  */
 import { spawnSync, spawn } from 'child_process';
@@ -54,6 +58,37 @@ function findBun() {
   return null;
 }
 
+/**
+ * Buffer all stdin data when running as a pipe (non-TTY).
+ * Returns the buffered data, or null if stdin is a TTY.
+ */
+function collectStdin() {
+  if (process.stdin.isTTY) return Promise.resolve(null);
+
+  return new Promise((resolve) => {
+    const chunks = [];
+    const STDIN_TIMEOUT_MS = 5000;
+
+    const timer = setTimeout(() => {
+      process.stdin.removeAllListeners();
+      process.stdin.destroy();
+      resolve(chunks.length > 0 ? Buffer.concat(chunks) : null);
+    }, STDIN_TIMEOUT_MS);
+
+    process.stdin.on('data', (chunk) => chunks.push(chunk));
+    process.stdin.on('end', () => {
+      clearTimeout(timer);
+      resolve(chunks.length > 0 ? Buffer.concat(chunks) : null);
+    });
+    process.stdin.on('error', () => {
+      clearTimeout(timer);
+      resolve(chunks.length > 0 ? Buffer.concat(chunks) : null);
+    });
+
+    process.stdin.resume();
+  });
+}
+
 // Get args: node bun-runner.js <script> [args...]
 const args = process.argv.slice(2);
 
@@ -70,15 +105,24 @@ if (!bunPath) {
   process.exit(1);
 }
 
+// Buffer stdin before spawning to prevent Bun's libuv fstat() crash on pipes
+const stdinData = await collectStdin();
+
 // Spawn Bun with the provided script and args
 // Use spawn (not spawnSync) to properly handle stdio
 // Note: Don't use shell mode on Windows - it breaks paths with spaces in usernames
 // Use windowsHide to prevent a visible console window from spawning on Windows
 const child = spawn(bunPath, args, {
-  stdio: 'inherit',
+  stdio: [stdinData ? 'pipe' : 'ignore', 'inherit', 'inherit'],
   windowsHide: true,
   env: process.env
 });
+
+// Pipe buffered stdin to child process
+if (stdinData && child.stdin) {
+  child.stdin.write(stdinData);
+  child.stdin.end();
+}
 
 child.on('error', (err) => {
   console.error(`Failed to start Bun: ${err.message}`);

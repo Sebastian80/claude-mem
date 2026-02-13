@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the Sebastian80 fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Fork Version**: `9.1.1-ser.4`
+**Current Fork Version**: `9.1.1-ser.5`
 **Upstream Base**: `v9.1.1` (commit `5969d670`)
 **Last Merge**: 2026-02-08
 **Recent Updates**:
+- `9.1.1-ser.5`: Security and reliability fixes — parameterized all SQL in ChromaSync backfill to prevent injection via Chroma metadata IDs, added Number() coercion as defense-in-depth, and worker now exits on background init failure instead of staying half-alive.
 - `9.1.1-ser.4`: Re-applied orphaned message fallback from upstream PR #937 (lost in JillVernus's v9.1.1 reconciliation merge). On session termination, orphaned queue items now cascade through Gemini → OpenAI → mark abandoned instead of aging through 3 retry cycles (~329s TIMEOUT_FAILED).
 - `9.1.1-ser.3`: Fixed ChromaSync duplicate subprocess spawning — concurrent `ensureConnection()` calls now share a single connection attempt via promise cache. Pre-existing upstream bug (PRs #993, #1065 still open).
 - `9.1.1-ser.2`: Re-applied upstream project backfill fix (`af308ea`) lost in JillVernus's v9.0.17 merge. Sessions created by SAVE hook now get project field populated correctly.
@@ -52,7 +53,9 @@ Categories are ordered by severity (critical fixes first).
 | 17 | U: Project Backfill Fix | Bugfix - re-apply upstream project backfill lost in v9.0.17 merge | 1 | Active |
 | 18 | V: ChromaSync Connection Mutex | Bugfix - prevent duplicate subprocess spawning on concurrent connections | 1 | Active |
 | 19 | W: Orphaned Message Fallback | Bugfix - session termination detection + fallback chain + immediate abandon | 2 | Active |
-| 20 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
+| 20 | X: ChromaSync SQL Parameterization | Security - prevent SQL injection in backfill | 1 | Active |
+| 21 | Y: Worker Init Failure Recovery | Reliability - exit on background init failure | 1 | Active |
+| 22 | G: Fork Configuration | Identity - version and marketplace config | 4 | Active |
 
 ### Files by Category
 
@@ -61,7 +64,7 @@ Categories are ordered by severity (critical fixes first).
 | `scripts/sync-marketplace.cjs` | | | | | | | | | + | | | | | | | | | |
 | `src/services/worker/SDKAgent.ts` | | | | | + | + | + | | | | | | | | | + | + | |
 | `src/services/worker/SessionManager.ts` | | | | | + | + | + | + | | | | | | + | | + | | |
-| `src/services/worker-service.ts` | | | | | | | + | | | | | | + | + | | | | |
+| `src/services/worker-service.ts` | | | | | | | + | | | | | | + | + | | | | + |
 | `src/services/worker-types.ts` | | | | | + | + | + | + | | | | | | + | + | | | | |
 | `src/services/sqlite/SessionStore.ts` | | | | | | + | | | | | | | | | | | | |
 | `src/services/sqlite/PendingMessageStore.ts` | | | | | | | | | | + | | | | | | | | |
@@ -75,7 +78,7 @@ Categories are ordered by severity (critical fixes first).
 | `src/services/worker/BranchManager.ts` | | | + | | | | | | | | | | | | | | | |
 | `src/services/integrations/CursorHooksInstaller.ts` | | | + | | | | | | | | | | | | | | | |
 | `src/services/context/ContextBuilder.ts` | | | + | | | | | | | | | | | | | | | |
-| `src/services/sync/ChromaSync.ts` | | | + | | | | | | | | | | | | | | | |
+| `src/services/sync/ChromaSync.ts` | | | + | | | | | | | | | | | | | | | + |
 | `src/services/worker/GeminiAgent.ts` | | | | + | + | | | | | + | | | + | + | | | | | |
 | `src/services/worker/OpenAIAgent.ts` | | | | + | + | | | | | + | | | + | + | | | | | |
 | `src/services/worker/SearchManager.ts` | | | | | | | | | | | + | | | | | | | | |
@@ -1055,6 +1058,49 @@ grep -n 'isSessionTerminatedError' src/services/worker-service.ts
 
 # Check fallback chain
 grep -n 'runFallbackForTerminatedSession' src/services/worker-service.ts
+```
+
+---
+
+### Category X: ChromaSync SQL Parameterization (Priority 1)
+
+**Problem**: `ensureBackfilled()` builds SQL exclusion clauses via string interpolation: `AND id NOT IN (${existingObsIds.join(',')})`. IDs originate from Chroma MCP metadata responses (`meta.sqlite_id`). If Chroma returns non-integer values, they are injected raw into SQL — a SQL injection vulnerability.
+
+**Fix**: Replace string interpolation with parameterized placeholders in all 3 exclusion clauses (observations, summaries, user prompts). Add `Number()` coercion with `Number.isFinite()` validation when reading `meta.sqlite_id` from Chroma metadata as defense-in-depth.
+
+**Files**:
+| File | Change |
+|------|--------|
+| `src/services/sync/ChromaSync.ts` | Parameterize 3 NOT IN clauses + add Number() coercion on metadata IDs |
+
+**Verification**:
+```bash
+# Should find NO vulnerable string interpolation pattern
+grep -n 'NOT IN.*\.join' src/services/sync/ChromaSync.ts
+# Should show parameterized pattern: .map(() => '?').join(',')
+
+# Should find Number() coercion
+grep -n 'Number(meta.sqlite_id)' src/services/sync/ChromaSync.ts
+```
+
+---
+
+### Category Y: Worker Init Failure Recovery (Priority 2)
+
+**Problem**: HTTP server starts listening before `initializeBackground()` runs. If background init fails (DB migration error, MCP connection timeout, Chroma failure), the `.catch()` just logs the error. The worker appears "healthy" (port is open) but can't serve any real requests. Hooks think everything is fine.
+
+**Fix**: On background init failure, exit the process with `process.exit(1)` so the hook system can restart the worker cleanly. A crash-and-restart is the correct response for this rare failure mode — simpler and more reliable than retry logic.
+
+**Files**:
+| File | Change |
+|------|--------|
+| `src/services/worker-service.ts` | `process.exit(1)` on background init failure instead of just logging |
+
+**Verification**:
+```bash
+# Check exit-on-failure pattern
+grep -A2 'Background initialization failed' src/services/worker-service.ts
+# Should show process.exit(1)
 ```
 
 ---

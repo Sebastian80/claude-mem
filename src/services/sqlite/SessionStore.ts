@@ -690,6 +690,20 @@ export class SessionStore {
   }
 
   /**
+   * Idempotent registration: set memory_session_id only if it differs from current value.
+   * Validates session existence to prevent silent FK violations during observation INSERT.
+   */
+  ensureMemorySessionIdRegistered(sessionDbId: number, memorySessionId: string): void {
+    const session = this.getSessionById(sessionDbId);
+    if (!session) {
+      throw new Error(`Session ${sessionDbId} not found in sdk_sessions`);
+    }
+    if (session.memory_session_id !== memorySessionId) {
+      this.updateMemorySessionId(sessionDbId, memorySessionId);
+    }
+  }
+
+  /**
    * Update the Claude resume session ID for a session
    * Called by SDKAgent when it captures the session ID from SDK responses
    * This ID is used for --resume flag and may change on rollover

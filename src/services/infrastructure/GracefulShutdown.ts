@@ -11,7 +11,7 @@
 import http from 'http';
 import { logger } from '../../utils/logger.js';
 import {
-  getChildProcesses,
+  getDescendantProcesses,
   forceKillProcess,
   waitForProcessesExit,
   removePidFile
@@ -52,31 +52,37 @@ export async function performGracefulShutdown(config: GracefulShutdownConfig): P
   // Clean up PID file on shutdown
   removePidFile();
 
-  // STEP 1: Enumerate all child processes BEFORE we start closing things
-  const childPids = await getChildProcesses(process.pid);
-  logger.info('SYSTEM', 'Found child processes', { count: childPids.length, pids: childPids });
+  // STEP 1: Enumerate all descendant processes BEFORE we start closing things
+  // Uses leaf-first order so force-kill hits grandchildren before children
+  const childPids = await getDescendantProcesses(process.pid);
+  logger.info('SYSTEM', 'Found descendant processes', { count: childPids.length, pids: childPids });
 
-  // STEP 2: Close HTTP server first
-  if (config.server) {
-    await closeHttpServer(config.server);
-    logger.info('SYSTEM', 'HTTP server closed');
+  try {
+    // STEP 2: Close HTTP server first
+    if (config.server) {
+      await closeHttpServer(config.server);
+      logger.info('SYSTEM', 'HTTP server closed');
+    }
+
+    // STEP 3: Shutdown active sessions
+    await config.sessionManager.shutdownAll();
+
+    // STEP 4: Close MCP client connection (signals child to exit gracefully)
+    if (config.mcpClient) {
+      await config.mcpClient.close();
+      logger.info('SYSTEM', 'MCP client closed');
+    }
+
+    // STEP 5: Close database connection (includes ChromaSync cleanup)
+    if (config.dbManager) {
+      await config.dbManager.close();
+    }
+  } catch (error) {
+    logger.error('SYSTEM', 'Error during graceful close, proceeding to force kill', {}, error as Error);
   }
 
-  // STEP 3: Shutdown active sessions
-  await config.sessionManager.shutdownAll();
-
-  // STEP 4: Close MCP client connection (signals child to exit gracefully)
-  if (config.mcpClient) {
-    await config.mcpClient.close();
-    logger.info('SYSTEM', 'MCP client closed');
-  }
-
-  // STEP 5: Close database connection (includes ChromaSync cleanup)
-  if (config.dbManager) {
-    await config.dbManager.close();
-  }
-
-  // STEP 6: Force kill any remaining child processes (Windows zombie port fix)
+  // STEP 6: Force kill any remaining child processes
+  // MUST run regardless of errors above — this is the last line of defense
   if (childPids.length > 0) {
     logger.info('SYSTEM', 'Force killing remaining children');
     for (const pid of childPids) {

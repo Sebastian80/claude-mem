@@ -256,8 +256,11 @@ export class WorkerService {
     logger.info('SYSTEM', 'Worker started', { host, port, pid: process.pid });
 
     // Do slow initialization in background (non-blocking)
+    // On failure, exit the process so the hook system can restart a clean worker.
+    // Without this, the HTTP server stays up but can't serve real requests (half-alive).
     this.initializeBackground().catch((error) => {
-      logger.error('SYSTEM', 'Background initialization failed', {}, error as Error);
+      logger.error('SYSTEM', 'Background initialization failed, shutting down', {}, error as Error);
+      process.exit(1);
     });
   }
 

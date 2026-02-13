@@ -192,26 +192,19 @@ describe('Zombie Agent Prevention', () => {
     // hasAnyPendingWork should return true
     expect(pendingStore.hasAnyPendingWork()).toBe(true);
 
-    // CLAIM-CONFIRM pattern: claimAndDelete marks as 'processing' (not deleted)
+    // claimAndDelete atomically claims and deletes from the queue
     const claimed = pendingStore.claimAndDelete(sessionId);
     expect(claimed).not.toBeNull();
     expect(claimed?.id).toBe(msgId1);
-
-    // Count stays at 3 because 'processing' messages are still counted
-    // (they need to be confirmed after successful storage)
-    expect(pendingStore.getPendingCount(sessionId)).toBe(3);
-
-    // After confirmProcessed, the message is actually deleted
-    pendingStore.confirmProcessed(msgId1);
     expect(pendingStore.getPendingCount(sessionId)).toBe(2);
 
-    // Claim and confirm remaining messages
+    // Claim remaining messages
     const msg2 = pendingStore.claimAndDelete(sessionId);
-    pendingStore.confirmProcessed(msg2!.id);
+    expect(msg2).not.toBeNull();
     expect(pendingStore.getPendingCount(sessionId)).toBe(1);
 
     const msg3 = pendingStore.claimAndDelete(sessionId);
-    pendingStore.confirmProcessed(msg3!.id);
+    expect(msg3).not.toBeNull();
 
     // Should be empty now
     expect(pendingStore.getPendingCount(sessionId)).toBe(0);

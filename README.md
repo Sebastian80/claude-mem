@@ -2,7 +2,7 @@
 
 A stability-focused fork of [JillVernus/claude-mem](https://github.com/JillVernus/claude-mem) (itself a fork of [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)), a persistent memory system for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-**Current Version**: `9.1.1-ser.4` (based on upstream v9.1.1)
+**Current Version**: `9.1.1-ser.5` (based on upstream v9.1.1)
 
 ---
 
@@ -38,6 +38,7 @@ This is a fork of [JillVernus/claude-mem](https://github.com/JillVernus/claude-m
 
 ### What Sebastian80 adds
 
+- **[ser.5] Process cleanup and security fixes** — Linux process cleanup now works (`getChildProcesses` via `pgrep -P`), recursive descendant enumeration kills grandchildren leaf-first during shutdown, hardened `ChromaSync.close()` prevents subprocess leaks on error, `bun-runner.js` buffers stdin to prevent Bun `fstat EINVAL` crash, parameterized all SQL in ChromaSync backfill to prevent injection via Chroma metadata IDs, and worker now exits on background init failure instead of staying half-alive.
 - **[ser.4] Orphaned message fallback** — Re-applied upstream PR #937 (lost in JillVernus's v9.1.1 reconciliation merge). When a Claude session is terminated, orphaned queue items now cascade through Gemini → OpenAI → mark abandoned instead of aging through 329s timeout. Adapted OpenRouterAgent → OpenAIAgent for fork architecture.
 - **[ser.3] ChromaSync duplicate subprocess prevention** — Fixed race condition where concurrent sessions each spawned their own chroma-mcp subprocess via `ensureConnection()`. Added connection promise cache (async singleton pattern). Upstream PRs #993 and #1065 address the same bug but remain unmerged.
 - **[ser.2] Re-applied project backfill fix** lost in JillVernus's v9.0.17 merge: sessions created by SAVE hook (empty project) now get their project field populated when UserPromptSubmit fires. Without this, sessions accumulate with empty project names in the database.
@@ -60,6 +61,11 @@ This is a fork of [JillVernus/claude-mem](https://github.com/JillVernus/claude-m
 | **Stuck Message Recovery** | Sessions orphaned with unprocessed messages after crashes | Terminal error detection, session cache refresh, periodic orphan recovery with configurable interval |
 | **Pending Queue Recovery Guard** | Stale `pendingRestart` flag starves message queue after recovery | Clear stale flag during recovery/manual starts before generator boot |
 | **Orphaned Message Fallback** | Terminated sessions leave orphaned queue items aging through 329s timeout cascade | Session termination detection + Gemini → OpenAI → abandon fallback chain (upstream PR #937, lost in v9.1.1 merge) |
+| **Linux Process Cleanup** | `getChildProcesses()` returned `[]` on Linux — chroma-mcp subprocesses never cleaned up | `pgrep -P` implementation + recursive descendant enumeration for grandchild processes |
+| **Hardened ChromaSync Close** | `close()` had no error handling — `client.close()` failure skipped `transport.close()`, leaking subprocesses | Individual try-catch per close step with state reset in `finally` block |
+| **Worker Init Failure Recovery** | Background init failure left worker half-alive (port open, services dead) | `process.exit(1)` on init failure for clean restart |
+| **ChromaSync SQL Parameterization** | Backfill SQL built via string interpolation of Chroma metadata IDs — SQL injection if Chroma returns non-integer values | Parameterized placeholders + `Number()` coercion with `isFinite()` validation |
+| **Bun-Runner Stdin Buffer** | `stdio: 'inherit'` passes pipe fds to Bun subprocess, causing `fstat EINVAL` crash on Linux when hooks receive piped stdin | Buffer stdin before spawn, pass via pipe or ignore |
 | **Dynamic Path Resolution** | Hardcoded `thedotmack` paths crash on any other installation | Dynamic path resolution via `getPackageRoot()` across all file references |
 
 ### Fixed Independently Upstream

@@ -5,7 +5,7 @@
  * Handles:
  * - PID file management for daemon coordination
  * - Signal handler registration for graceful shutdown
- * - Child process enumeration and cleanup (especially for Windows zombie port fix)
+ * - Child process enumeration and cleanup (pgrep on Linux/macOS, PowerShell on Windows)
  */
 
 import path from 'path';
@@ -85,14 +85,10 @@ export function getPlatformTimeout(baseMs: number): number {
 }
 
 /**
- * Get all child process PIDs (Windows-specific)
+ * Get all child process PIDs for a given parent
  * Used for cleanup to prevent zombie ports when parent exits
  */
 export async function getChildProcesses(parentPid: number): Promise<number[]> {
-  if (process.platform !== 'win32') {
-    return [];
-  }
-
   // SECURITY: Validate PID is a positive integer to prevent command injection
   if (!Number.isInteger(parentPid) || parentPid <= 0) {
     logger.warn('SYSTEM', 'Invalid parent PID for child process enumeration', { parentPid });
@@ -100,21 +96,55 @@ export async function getChildProcesses(parentPid: number): Promise<number[]> {
   }
 
   try {
-    // PowerShell Get-Process instead of WMIC (deprecated in Windows 11)
-    const cmd = `powershell -NoProfile -NonInteractive -Command "Get-Process | Where-Object { \\$_.ParentProcessId -eq ${parentPid} } | Select-Object -ExpandProperty Id"`;
-    const { stdout } = await execAsync(cmd, { timeout: HOOK_TIMEOUTS.POWERSHELL_COMMAND });
-    // PowerShell outputs just numbers (one per line), simpler than WMIC's "ProcessId=1234" format
-    return stdout
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0 && /^\d+$/.test(line))
-      .map(line => parseInt(line, 10))
-      .filter(pid => pid > 0);
+    if (process.platform === 'win32') {
+      // PowerShell Get-Process instead of WMIC (deprecated in Windows 11)
+      const cmd = `powershell -NoProfile -NonInteractive -Command "Get-Process | Where-Object { \\$_.ParentProcessId -eq ${parentPid} } | Select-Object -ExpandProperty Id"`;
+      const { stdout } = await execAsync(cmd, { timeout: HOOK_TIMEOUTS.POWERSHELL_COMMAND });
+      return parseNumberLines(stdout);
+    } else {
+      // pgrep -P lists direct children of the given parent PID
+      const { stdout } = await execAsync(`pgrep -P ${parentPid}`, { timeout: 5000 });
+      return parseNumberLines(stdout);
+    }
   } catch (error) {
+    // pgrep exits with code 1 when no children found — not an error
+    const exitCode = (error as any)?.code;
+    if (exitCode === 1) {
+      return [];
+    }
     // Shutdown cleanup - failure is non-critical, continue without child process cleanup
     logger.error('SYSTEM', 'Failed to enumerate child processes', { parentPid }, error as Error);
     return [];
   }
+}
+
+/**
+ * Get all descendant process PIDs for a given parent (recursive)
+ * Returns PIDs in leaf-first order for safe bottom-up killing:
+ * grandchildren before children, so no orphans are created during cleanup.
+ */
+export async function getDescendantProcesses(parentPid: number): Promise<number[]> {
+  const children = await getChildProcesses(parentPid);
+  if (children.length === 0) return [];
+
+  const result: number[] = [];
+  for (const childPid of children) {
+    // Recurse: get descendants of each child first (leaf-first order)
+    const grandchildren = await getDescendantProcesses(childPid);
+    result.push(...grandchildren);
+    result.push(childPid);
+  }
+  return result;
+}
+
+/** Parse newline-separated PID output into an array of positive integers */
+function parseNumberLines(stdout: string): number[] {
+  return stdout
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0 && /^\d+$/.test(line))
+    .map(line => parseInt(line, 10))
+    .filter(pid => pid > 0);
 }
 
 /**
