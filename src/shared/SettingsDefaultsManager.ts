@@ -85,6 +85,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL: string;  // interval in milliseconds (default: 300000 = 5 minutes)
   // Chroma Vector DB Configuration
   CLAUDE_MEM_CHROMA_MAX_ITEMS: string;  // Max source items (observations+summaries+prompts) with embeddings. 0 = unlimited.
+  CLAUDE_MEM_CHROMA_PORT: string;  // Port for shared ChromaDB HTTP server (chroma-http backend)
   // Vector Store Backend
   CLAUDE_MEM_VECTOR_BACKEND: string;  // 'chroma-stdio' | 'chroma-http' | 'sqlite-vec'
 }
@@ -158,6 +159,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_PERIODIC_RECOVERY_INTERVAL: '300000',  // 5 minutes in milliseconds
     // Chroma Vector DB Configuration
     CLAUDE_MEM_CHROMA_MAX_ITEMS: '50000',  // Cap at 50K source items (~200MB RAM). 0 = unlimited.
+    CLAUDE_MEM_CHROMA_PORT: '8100',  // Default port for shared ChromaDB HTTP server
     // Vector Store Backend
     CLAUDE_MEM_VECTOR_BACKEND: 'chroma-stdio',  // Default to MCP stdio subprocess
   };
