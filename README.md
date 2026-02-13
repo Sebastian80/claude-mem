@@ -1,8 +1,8 @@
-# Sebastian80 Fork of Claude-Mem
+# Sebastian80 Claude-Mem
 
-A stability-focused fork of [JillVernus/claude-mem](https://github.com/JillVernus/claude-mem) (itself a fork of [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)), a persistent memory system for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+An independently maintained fork of [claude-mem](https://github.com/thedotmack/claude-mem), a persistent memory system for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-**Current Version**: `9.1.1-ser.5` (based on upstream v9.1.1)
+Originally forked via [JillVernus/claude-mem](https://github.com/JillVernus/claude-mem). Now maintained independently — see [Why Independent?](#why-independent) below.
 
 ---
 
@@ -18,39 +18,37 @@ Claude-mem gives Claude Code persistent memory across sessions. It runs as a bac
 4. **Context injection** retrieves relevant past observations at session start via the SessionStart hook
 5. **MCP tools** let Claude search your memory database mid-session (`search`, `timeline`, `get_observations`, `save_memory`)
 
-For full upstream documentation: **[docs.claude-mem.ai](https://docs.claude-mem.ai)** | **[upstream repo](https://github.com/thedotmack/claude-mem)**
+---
+
+## Why Independent?
+
+This fork went independent from upstream (thedotmack/claude-mem) and the JillVernus intermediary fork in February 2026. The reasons:
+
+**Upstream direction divergence.** Upstream development shifted focus away from core reliability (PR triage via MAESTRO bot, Clawbot integration, $CMEM token promotion) while fundamental stability issues remained unaddressed. Critical PRs (ChromaSync subprocess leaks #993/#1065, persistent HTTP server #792) sat unmerged for months.
+
+**Repeated merge casualties.** Each upstream merge into the JillVernus fork lost previously applied fixes. Project backfill (ser.2), orphaned message fallback (ser.4), and other patches had to be re-applied after reconciliation merges dropped them silently. This created an unsustainable maintenance burden.
+
+**ChromaDB architectural gaps.** Upstream has no strategy for ChromaDB's unbounded memory growth (all HNSW indexes loaded into RAM, no TTL/pruning/eviction), orphaned collection accumulation from crash-unsafe `journal_mode=delete`, or WAL purge blockage (ChromaDB bug #2605). These are production reliability issues that require fork-level fixes.
+
+**Quality signal.** Of 119 MAESTRO-triaged PRs in the JillVernus fork, the majority were documentation translations, formatting fixes, and bot-generated changes. The core stability work was built by JillVernus (stuck message recovery, context rollover, safe message processing) and extended by this fork (ChromaDB process lifecycle, subprocess leak prevention, SQL security hardening). Upstream cherry-picks were incorporated where JillVernus hadn't picked them up yet.
+
+**Going forward**, this fork maintains its own release cadence, accepts upstream cherry-picks when they add clear value, and is free to make architectural changes (like the ChromaDB retention cap) without waiting for upstream consensus.
 
 ---
 
-## Why This Fork?
+## Fork Lineage
 
-Upstream claude-mem has reliability issues in production: message loss during worker restarts, unbounded context growth crashing sessions, instant API retry floods causing rate limiting, hardcoded paths breaking non-default installations, and invisible MCP tool parameters.
-
-[JillVernus](https://github.com/JillVernus/claude-mem) built a comprehensive set of fixes for all of the above, plus usability features like custom API endpoints, dynamic model selection, and settings hot-reload. Some of these issues have since been fixed independently upstream.
-
-This fork builds on JillVernus's work and adds cherry-picked upstream fixes that JillVernus hadn't merged yet. See [All Fork Patches](#all-fork-patches) below for the full list.
-
----
-
-## Fork History
-
-This is a fork of [JillVernus/claude-mem](https://github.com/JillVernus/claude-mem), which is itself a fork of [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem). All the stability and usability patches (versions `9.0.8-jv.1` through `9.1.1-jv.2`) were developed by JillVernus. JillVernus's fork continues independently.
-
-### What Sebastian80 adds
-
-- **[ser.5] Process cleanup and security fixes** — Linux process cleanup now works (`getChildProcesses` via `pgrep -P`), recursive descendant enumeration kills grandchildren leaf-first during shutdown, hardened `ChromaSync.close()` prevents subprocess leaks on error, `bun-runner.js` buffers stdin to prevent Bun `fstat EINVAL` crash, parameterized all SQL in ChromaSync backfill to prevent injection via Chroma metadata IDs, and worker now exits on background init failure instead of staying half-alive.
-- **[ser.4] Orphaned message fallback** — Re-applied upstream PR #937 (lost in JillVernus's v9.1.1 reconciliation merge). When a Claude session is terminated, orphaned queue items now cascade through Gemini → OpenAI → mark abandoned instead of aging through 329s timeout. Adapted OpenRouterAgent → OpenAIAgent for fork architecture.
-- **[ser.3] ChromaSync duplicate subprocess prevention** — Fixed race condition where concurrent sessions each spawned their own chroma-mcp subprocess via `ensureConnection()`. Added connection promise cache (async singleton pattern). Upstream PRs #993 and #1065 address the same bug but remain unmerged.
-- **[ser.2] Re-applied project backfill fix** lost in JillVernus's v9.0.17 merge: sessions created by SAVE hook (empty project) now get their project field populated when UserPromptSubmit fires. Without this, sessions accumulate with empty project names in the database.
-- **[ser.1] Cherry-picked upstream fixes** that JillVernus hadn't picked up yet: `save_memory` MCP tool endpoint, `sessions/complete` API route, and `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` config flag in ResponseProcessor
-- **[ser.1] Marketplace path update**: Updated hardcoded marketplace paths from `jillvernus` to `sebastian80` across source files and sync scripts (required for the fork to work under its own marketplace name)
-- **[ser.1] Sync script self-detection**: Enhanced `sync-marketplace.cjs` to skip self-copy when dev repo is the marketplace directory
+| Layer | Repository | Role |
+|-------|-----------|------|
+| Original | [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem) | Created claude-mem, maintains upstream |
+| Intermediary | [JillVernus/claude-mem](https://github.com/JillVernus/claude-mem) | Built stability patches (jv.1–jv.11), multi-provider support, settings hot-reload |
+| This fork | [Sebastian80/claude-mem](https://github.com/Sebastian80/claude-mem) | Security fixes, process lifecycle hardening, ChromaDB reliability, independent maintenance |
 
 ---
 
-## All Fork Patches
+## All Patches
 
-### Reliability Fixes
+### Reliability Fixes (this fork)
 
 | Patch | Problem | Fix |
 |-------|---------|-----|
@@ -67,6 +65,9 @@ This is a fork of [JillVernus/claude-mem](https://github.com/JillVernus/claude-m
 | **ChromaSync SQL Parameterization** | Backfill SQL built via string interpolation of Chroma metadata IDs — SQL injection if Chroma returns non-integer values | Parameterized placeholders + `Number()` coercion with `isFinite()` validation |
 | **Bun-Runner Stdin Buffer** | `stdio: 'inherit'` passes pipe fds to Bun subprocess, causing `fstat EINVAL` crash on Linux when hooks receive piped stdin | Buffer stdin before spawn, pass via pipe or ignore |
 | **Dynamic Path Resolution** | Hardcoded `thedotmack` paths crash on any other installation | Dynamic path resolution via `getPackageRoot()` across all file references |
+| **Graceful Process Termination** | `forceKillProcess()` sends SIGKILL immediately — corrupts chroma-mcp SQLite (journal_mode=delete) | `gracefulKillProcess()`: SIGTERM → poll for exit → SIGKILL fallback |
+| **Orphaned Collection Cleanup** | Killed chroma-mcp creates orphaned collections that block WAL purge indefinitely (ChromaDB bug #2605) | Reconciliation loop in `ensureCollection()` deletes non-`cm__*` collections on every connect |
+| **Embedding Retention Cap** | ChromaDB loads all HNSW indexes into RAM with no eviction — unbounded memory growth | `CLAUDE_MEM_CHROMA_MAX_ITEMS` setting (default 50K) prunes oldest embeddings; SQLite data and FTS5 search unaffected |
 
 ### Fixed Independently Upstream
 
