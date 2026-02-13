@@ -95,7 +95,7 @@ describe('SearchOrchestrator', () => {
   let orchestrator: SearchOrchestrator;
   let mockSessionSearch: any;
   let mockSessionStore: any;
-  let mockChromaSync: any;
+  let mockVectorStore: any;
 
   beforeEach(() => {
     mockSessionSearch = {
@@ -113,8 +113,8 @@ describe('SearchOrchestrator', () => {
       getUserPromptsByIds: mock(() => [mockPrompt])
     };
 
-    mockChromaSync = {
-      queryChroma: mock(() => Promise.resolve({
+    mockVectorStore = {
+      query: mock(() => Promise.resolve({
         ids: [1],
         distances: [0.1],
         metadatas: [{ sqlite_id: 1, doc_type: 'observation', created_at_epoch: Date.now() - 1000 }]
@@ -124,7 +124,7 @@ describe('SearchOrchestrator', () => {
 
   describe('with Chroma available', () => {
     beforeEach(() => {
-      orchestrator = new SearchOrchestrator(mockSessionSearch, mockSessionStore, mockChromaSync);
+      orchestrator = new SearchOrchestrator(mockSessionSearch, mockSessionStore, mockVectorStore);
     });
 
     describe('search', () => {
@@ -137,7 +137,7 @@ describe('SearchOrchestrator', () => {
         expect(result.strategy).toBe('sqlite');
         expect(result.usedChroma).toBe(false);
         expect(mockSessionSearch.searchObservations).toHaveBeenCalled();
-        expect(mockChromaSync.queryChroma).not.toHaveBeenCalled();
+        expect(mockVectorStore.query).not.toHaveBeenCalled();
       });
 
       it('should select Chroma strategy for query-only', async () => {
@@ -147,11 +147,11 @@ describe('SearchOrchestrator', () => {
 
         expect(result.strategy).toBe('chroma');
         expect(result.usedChroma).toBe(true);
-        expect(mockChromaSync.queryChroma).toHaveBeenCalled();
+        expect(mockVectorStore.query).toHaveBeenCalled();
       });
 
       it('should fall back to SQLite when Chroma fails', async () => {
-        mockChromaSync.queryChroma = mock(() => Promise.reject(new Error('Chroma unavailable')));
+        mockVectorStore.query = mock(() => Promise.reject(new Error('Chroma unavailable')));
 
         const result = await orchestrator.search({
           query: 'test query'
@@ -216,7 +216,7 @@ describe('SearchOrchestrator', () => {
 
         // Hybrid strategy should be used
         expect(mockSessionSearch.findByConcept).toHaveBeenCalled();
-        expect(mockChromaSync.queryChroma).toHaveBeenCalled();
+        expect(mockVectorStore.query).toHaveBeenCalled();
       });
 
       it('should return observations matching concept', async () => {

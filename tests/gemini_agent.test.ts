@@ -100,14 +100,21 @@ describe('GeminiAgent', () => {
       ensureMemorySessionIdRegistered: mock(() => {}) // Required by ResponseProcessor.ts for FK constraint fix (Issue #846)
     };
 
-    const mockChromaSync = {
+    const mockVectorStore = {
       syncObservation: mockSyncObservation,
-      syncSummary: mockSyncSummary
+      syncSummary: mockSyncSummary,
+      syncUserPrompt: mock(() => Promise.resolve()),
+      query: mock(() => Promise.resolve({ ids: [], distances: [], metadatas: [] })),
+      addDocuments: mock(() => Promise.resolve()),
+      getExistingIds: mock(() => Promise.resolve({ observations: new Set(), summaries: new Set(), prompts: new Set() })),
+      performMaintenance: mock(() => Promise.resolve()),
+      isAvailable: mock(() => true),
+      close: mock(() => Promise.resolve())
     };
 
     mockDbManager = {
       getSessionStore: () => mockSessionStore,
-      getChromaSync: () => mockChromaSync
+      getVectorStore: () => mockVectorStore
     } as unknown as DatabaseManager;
 
     const mockPendingMessageStore = {

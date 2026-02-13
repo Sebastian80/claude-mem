@@ -75,7 +75,7 @@ describe('ResponseProcessor', () => {
         ensureMemorySessionIdRegistered: mock(() => {}),  // FK fix (Issue #846)
         getSessionById: mock(() => ({ memory_session_id: 'memory-session-456' })),  // FK fix (Issue #846)
       }),
-      getChromaSync: () => ({
+      getVectorStore: () => ({
         syncObservation: mockChromaSyncObservation,
         syncSummary: mockChromaSyncSummary,
       }),
