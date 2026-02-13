@@ -209,16 +209,16 @@ async function syncAndBroadcastObservations(
     const obs = observations[i];
     const chromaStart = Date.now();
 
-    // Sync to Chroma (fire-and-forget)
-    dbManager.getChromaSync().syncObservation(
-      obsId,
-      session.contentSessionId,
-      session.project,
-      obs,
-      session.lastPromptNumber,
-      result.createdAtEpoch,
+    // Sync to vector store (fire-and-forget)
+    dbManager.getVectorStore().syncObservation({
+      observationId: obsId,
+      memorySessionId: session.contentSessionId,
+      project: session.project,
+      observation: obs,
+      promptNumber: session.lastPromptNumber,
+      createdAtEpoch: result.createdAtEpoch,
       discoveryTokens
-    ).then(() => {
+    }).then(() => {
       const chromaDuration = Date.now() - chromaStart;
       logger.debug('CHROMA', 'Observation synced', {
         obsId,
@@ -300,16 +300,16 @@ async function syncAndBroadcastSummary(
 
   const chromaStart = Date.now();
 
-  // Sync to Chroma (fire-and-forget)
-  dbManager.getChromaSync().syncSummary(
-    result.summaryId,
-    session.contentSessionId,
-    session.project,
-    summaryForStore,
-    session.lastPromptNumber,
-    result.createdAtEpoch,
+  // Sync to vector store (fire-and-forget)
+  dbManager.getVectorStore().syncSummary({
+    summaryId: result.summaryId,
+    memorySessionId: session.contentSessionId,
+    project: session.project,
+    summary: summaryForStore,
+    promptNumber: session.lastPromptNumber,
+    createdAtEpoch: result.createdAtEpoch,
     discoveryTokens
-  ).then(() => {
+  }).then(() => {
     const chromaDuration = Date.now() - chromaStart;
     logger.debug('CHROMA', 'Summary synced', {
       summaryId: result.summaryId,

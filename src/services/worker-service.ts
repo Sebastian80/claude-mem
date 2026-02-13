@@ -295,10 +295,11 @@ export class WorkerService {
       // Initialize search services
       const formattingService = new FormattingService();
       const timelineService = new TimelineService();
+      const vectorStore = this.dbManager.getVectorStore();
       const searchManager = new SearchManager(
         this.dbManager.getSessionSearch(),
         this.dbManager.getSessionStore(),
-        this.dbManager.getChromaSync(),
+        vectorStore,
         formattingService,
         timelineService
       );

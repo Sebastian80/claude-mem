@@ -695,28 +695,28 @@ export class SessionRoutes extends BaseRouteHandler {
         created_at_epoch: latestPrompt.created_at_epoch
       });
 
-      // Sync user prompt to Chroma
+      // Sync user prompt to vector store
       const chromaStart = Date.now();
       const promptText = latestPrompt.prompt_text;
-      this.dbManager.getChromaSync().syncUserPrompt(
-        latestPrompt.id,
-        latestPrompt.memory_session_id,
-        latestPrompt.project,
+      this.dbManager.getVectorStore().syncUserPrompt({
+        promptId: latestPrompt.id,
+        memorySessionId: latestPrompt.memory_session_id,
+        project: latestPrompt.project,
         promptText,
-        latestPrompt.prompt_number,
-        latestPrompt.created_at_epoch
-      ).then(() => {
+        promptNumber: latestPrompt.prompt_number,
+        createdAtEpoch: latestPrompt.created_at_epoch
+      }).then(() => {
         const chromaDuration = Date.now() - chromaStart;
         const truncatedPrompt = promptText.length > 60
           ? promptText.substring(0, 60) + '...'
           : promptText;
-        logger.debug('CHROMA', 'User prompt synced', {
+        logger.debug('VECTOR', 'User prompt synced', {
           promptId: latestPrompt.id,
           duration: `${chromaDuration}ms`,
           prompt: truncatedPrompt
         });
       }).catch((error) => {
-        logger.error('CHROMA', 'User prompt sync failed, continuing without vector search', {
+        logger.error('VECTOR', 'User prompt sync failed, continuing without vector search', {
           promptId: latestPrompt.id,
           prompt: promptText.length > 60 ? promptText.substring(0, 60) + '...' : promptText
         }, error);
