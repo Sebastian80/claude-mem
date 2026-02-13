@@ -22,6 +22,9 @@ datasets/
 # Generated UI files (built from viewer-template.html)
 src/ui/viewer.html
 
+# Git worktrees
+.worktrees/
+
 # Local MCP server config (for development only)
 .cursor/
 .ace-tool/
