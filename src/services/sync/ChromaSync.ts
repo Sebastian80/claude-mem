@@ -675,7 +675,7 @@ export class ChromaSync {
    * Add documents to Chroma in batch
    * Throws error if batch add fails
    */
-  private async addDocuments(documents: ChromaDocument[]): Promise<void> {
+  async addDocuments(documents: ChromaDocument[]): Promise<void> {
     if (documents.length === 0) {
       return;
     }
@@ -864,7 +864,7 @@ export class ChromaSync {
    * Fetch all existing document IDs from Chroma collection
    * Returns Sets of SQLite IDs for observations, summaries, and prompts
    */
-  private async getExistingChromaIds(): Promise<{
+  async getExistingChromaIds(): Promise<{
     observations: Set<number>;
     summaries: Set<number>;
     prompts: Set<number>;
