@@ -62,9 +62,6 @@ This fork went independent from upstream (thedotmack/claude-mem) and the JillVer
 | **Linux Process Cleanup** | `getChildProcesses()` returned `[]` on Linux — chroma-mcp subprocesses never cleaned up | `pgrep -P` implementation + recursive descendant enumeration for grandchild processes |
 | **Hardened ChromaSync Close** | `close()` had no error handling — `client.close()` failure skipped `transport.close()`, leaking subprocesses | Individual try-catch per close step with state reset in `finally` block |
 | **Worker Init Failure Recovery** | Background init failure left worker half-alive (port open, services dead) | `process.exit(1)` on init failure for clean restart |
-| **ChromaSync SQL Parameterization** | Backfill SQL built via string interpolation of Chroma metadata IDs — SQL injection if Chroma returns non-integer values | Parameterized placeholders + `Number()` coercion with `isFinite()` validation |
-| **Bun-Runner Stdin Buffer** | `stdio: 'inherit'` passes pipe fds to Bun subprocess, causing `fstat EINVAL` crash on Linux when hooks receive piped stdin | Buffer stdin before spawn, pass via pipe or ignore |
-| **Dynamic Path Resolution** | Hardcoded `thedotmack` paths crash on any other installation | Dynamic path resolution via `getPackageRoot()` across all file references |
 | **Graceful Process Termination** | `forceKillProcess()` sends SIGKILL immediately — corrupts chroma-mcp SQLite (journal_mode=delete) | `gracefulKillProcess()`: SIGTERM → poll for exit → SIGKILL fallback |
 | **Orphaned Collection Cleanup** | Killed chroma-mcp creates orphaned collections that block WAL purge indefinitely (ChromaDB bug #2605) | Reconciliation loop in `ensureCollection()` deletes non-`cm__*` collections on every connect |
 | **Embedding Retention Cap** | ChromaDB loads all HNSW indexes into RAM with no eviction — unbounded memory growth | `CLAUDE_MEM_CHROMA_MAX_ITEMS` setting (default 50K) prunes oldest embeddings; SQLite data and FTS5 search unaffected |
@@ -89,6 +86,14 @@ These issues were also fixed upstream, so the fork patches are no longer needed:
 | **Dynamic Model Selection** | Fetch available models from your API endpoint; UI dropdown |
 | **Settings Hot-Reload** | Change provider/model settings without restarting the worker |
 | **OpenAI-Compatible Provider** | Renamed "OpenRouter" to "OpenAI Compatible" — works with any OpenAI-compatible API |
+
+### Fork Maintenance
+
+| Patch | Description |
+|-------|-------------|
+| **SQL Parameterization** | Backfill exclusion queries use parameterized placeholders + `Number()` coercion with `isFinite()` validation |
+| **Bun-Runner Stdin Buffer** | Buffer stdin before spawning Bun subprocess to avoid `fstat EINVAL` on inherited pipe fds |
+| **Dynamic Path Resolution** | `getPackageRoot()` replaces hardcoded upstream paths across source and sync scripts |
 
 ### On Hold
 
