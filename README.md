@@ -48,7 +48,9 @@ This fork went independent from upstream (thedotmack/claude-mem) and the JillVer
 
 ## All Patches
 
-### Reliability Fixes (this fork)
+### JillVernus Reliability Fixes (inherited)
+
+These fixes were developed by [JillVernus](https://github.com/JillVernus/claude-mem) and are included in this fork:
 
 | Patch | Problem | Fix |
 |-------|---------|-----|
@@ -58,25 +60,8 @@ This fork went independent from upstream (thedotmack/claude-mem) and the JillVer
 | **Exponential Backoff Retry** | API errors cause instant retry floods → rate limiting | Backoff delays (3s→5s→10s→30s→60s cap) with abort-aware sleep and structured error detection |
 | **Stuck Message Recovery** | Sessions orphaned with unprocessed messages after crashes | Terminal error detection, session cache refresh, periodic orphan recovery with configurable interval |
 | **Pending Queue Recovery Guard** | Stale `pendingRestart` flag starves message queue after recovery | Clear stale flag during recovery/manual starts before generator boot |
-| **Orphaned Message Fallback** | Terminated sessions leave orphaned queue items aging through 329s timeout cascade | Session termination detection + Gemini → OpenAI → abandon fallback chain (upstream PR #937, lost in v9.1.1 merge) |
-| **Linux Process Cleanup** | `getChildProcesses()` returned `[]` on Linux — chroma-mcp subprocesses never cleaned up | `pgrep -P` implementation + recursive descendant enumeration for grandchild processes |
-| **Hardened ChromaSync Close** | `close()` had no error handling — `client.close()` failure skipped `transport.close()`, leaking subprocesses | Individual try-catch per close step with state reset in `finally` block |
-| **Worker Init Failure Recovery** | Background init failure left worker half-alive (port open, services dead) | `process.exit(1)` on init failure for clean restart |
-| **Graceful Process Termination** | `forceKillProcess()` sends SIGKILL immediately — corrupts chroma-mcp SQLite (journal_mode=delete) | `gracefulKillProcess()`: SIGTERM → poll for exit → SIGKILL fallback |
-| **Orphaned Collection Cleanup** | Killed chroma-mcp creates orphaned collections that block WAL purge indefinitely (ChromaDB bug #2605) | Reconciliation loop in `ensureCollection()` deletes non-`cm__*` collections on every connect |
-| **Embedding Retention Cap** | ChromaDB loads all HNSW indexes into RAM with no eviction — unbounded memory growth | `CLAUDE_MEM_CHROMA_MAX_ITEMS` setting (default 50K) prunes oldest embeddings; SQLite data and FTS5 search unaffected |
 
-### Fixed Independently Upstream
-
-These issues were also fixed upstream, so the fork patches are no longer needed:
-
-| Patch | Upstream Fix |
-|-------|-------------|
-| ~~Zombie Process Cleanup~~ | v9.0.8 — `ProcessRegistry` with PID tracking |
-| ~~Gemini/OpenAI memorySessionId~~ | v9.1.1 — synthetic IDs for stateless providers |
-| ~~Folder CLAUDE.md Optimization~~ | v9.1.1 — `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` + exclusion controls |
-
-### Usability Improvements
+### JillVernus Usability Improvements (inherited)
 
 | Patch | Description |
 |-------|-------------|
@@ -86,6 +71,47 @@ These issues were also fixed upstream, so the fork patches are no longer needed:
 | **Dynamic Model Selection** | Fetch available models from your API endpoint; UI dropdown |
 | **Settings Hot-Reload** | Change provider/model settings without restarting the worker |
 | **OpenAI-Compatible Provider** | Renamed "OpenRouter" to "OpenAI Compatible" — works with any OpenAI-compatible API |
+
+### Sebastian80 Reliability Fixes
+
+| Patch | Problem | Fix |
+|-------|---------|-----|
+| **ChromaSync Duplicate Subprocess** | Concurrent `ensureConnection()` calls each spawn their own chroma-mcp subprocess | Connection promise cache (async singleton) ensures concurrent callers share a single connection |
+| **Linux Process Cleanup** | `getChildProcesses()` returned `[]` on Linux — chroma-mcp subprocesses never cleaned up | `pgrep -P` implementation + recursive descendant enumeration for grandchild processes |
+| **Hardened ChromaSync Close** | `close()` had no error handling — `client.close()` failure skipped `transport.close()`, leaking subprocesses | Individual try-catch per close step with state reset in `finally` block |
+| **Worker Init Failure Recovery** | Background init failure left worker half-alive (port open, services dead) | `process.exit(1)` on init failure for clean restart |
+| **Graceful Process Termination** | `forceKillProcess()` sends SIGKILL immediately — risks chroma-mcp SQLite corruption (journal_mode=delete) | `gracefulKillProcess()`: SIGTERM → poll for exit → SIGKILL fallback |
+| **Orphaned Collection Cleanup** | Killed chroma-mcp may create orphaned collections that block WAL purge (ChromaDB bug #2605) | Reconciliation loop in `ensureCollection()` deletes non-`cm__*` collections on every connect |
+| **Embedding Retention Cap** | ChromaDB loads all HNSW indexes into RAM with no eviction — unbounded memory growth | `CLAUDE_MEM_CHROMA_MAX_ITEMS` setting (default 50K) prunes oldest embeddings; SQLite data and FTS5 search unaffected |
+
+### Re-applied Patches (lost in upstream merges)
+
+These fixes existed upstream but were accidentally dropped during JillVernus merge reconciliation:
+
+| Patch | Original Source | Lost In |
+|-------|----------------|---------|
+| **Orphaned Message Fallback** | Upstream PR #937 | JillVernus v9.1.1 merge |
+| **Project Backfill** | Upstream af308ea | JillVernus v9.0.17 merge |
+
+### Upstream Cherry-Picks
+
+Features cherry-picked from upstream that JillVernus hadn't incorporated:
+
+| Patch | Description |
+|-------|-------------|
+| **`save_memory` MCP Tool** | Manual memory saving endpoint |
+| **`sessions/complete` Route** | Session completion API |
+| **`FOLDER_CLAUDEMD_ENABLED`** | Config flag in ResponseProcessor |
+
+### Fixed Independently Upstream
+
+These issues were also fixed upstream, so the fork patches are no longer the only source:
+
+| Patch | Upstream Fix |
+|-------|-------------|
+| ~~Zombie Process Cleanup~~ | v9.0.8 — `ProcessRegistry` with PID tracking |
+| ~~Gemini/OpenAI memorySessionId~~ | v9.1.1 — synthetic IDs for stateless providers |
+| ~~Folder CLAUDE.md Optimization~~ | v9.1.1 — `CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED` + exclusion controls |
 
 ### Fork Maintenance
 
