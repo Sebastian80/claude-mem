@@ -73,7 +73,7 @@ export async function performGracefulShutdown(config: GracefulShutdownConfig): P
       logger.info('SYSTEM', 'MCP client closed');
     }
 
-    // STEP 5: Close database connection (includes ChromaSync cleanup)
+    // STEP 5: Close database connection (includes vector store cleanup)
     if (config.dbManager) {
       await config.dbManager.close();
     }

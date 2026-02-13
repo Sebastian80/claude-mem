@@ -696,7 +696,7 @@ export class SessionRoutes extends BaseRouteHandler {
       });
 
       // Sync user prompt to vector store
-      const chromaStart = Date.now();
+      const syncStart = Date.now();
       const promptText = latestPrompt.prompt_text;
       this.dbManager.getVectorStore().syncUserPrompt({
         promptId: latestPrompt.id,
@@ -706,13 +706,13 @@ export class SessionRoutes extends BaseRouteHandler {
         promptNumber: latestPrompt.prompt_number,
         createdAtEpoch: latestPrompt.created_at_epoch
       }).then(() => {
-        const chromaDuration = Date.now() - chromaStart;
+        const syncDuration = Date.now() - syncStart;
         const truncatedPrompt = promptText.length > 60
           ? promptText.substring(0, 60) + '...'
           : promptText;
         logger.debug('VECTOR', 'User prompt synced', {
           promptId: latestPrompt.id,
-          duration: `${chromaDuration}ms`,
+          duration: `${syncDuration}ms`,
           prompt: truncatedPrompt
         });
       }).catch((error) => {

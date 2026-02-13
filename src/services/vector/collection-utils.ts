@@ -1,8 +1,8 @@
 /**
  * Collection utilities: Pure functions for vector collection maintenance
  *
- * Extracted from ChromaSync static methods. Used by all VectorStore adapters
- * for orphan cleanup and retention enforcement.
+ * Orphan identification and retention cap enforcement, shared by all
+ * VectorStore adapters.
  */
 
 /** Valid collection name prefix — all claude-mem collections use cm__<project> */

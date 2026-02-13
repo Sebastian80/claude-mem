@@ -168,7 +168,7 @@ export class ChromaSearchStrategy extends BaseSearchStrategy implements SearchSt
   /**
    * Filter results by recency (90-day window)
    *
-   * IMPORTANT: ChromaSync.queryChroma() returns deduplicated `ids` (unique sqlite_ids)
+   * IMPORTANT: VectorStore.query() returns deduplicated `ids` (unique sqlite_ids)
    * but the `metadatas` array may contain multiple entries per sqlite_id (e.g., one
    * observation can have narrative + multiple facts as separate Chroma documents).
    *

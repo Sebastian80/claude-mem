@@ -60,7 +60,7 @@ export interface StoredUserPrompt {
 
 export class VectorDocumentFormatter {
   /**
-   * Format observation into Chroma documents (granular approach).
+   * Format observation into vector documents (granular approach).
    * Each semantic field becomes a separate vector document.
    */
   static formatObservationDocs(obs: StoredObservation): VectorDocument[] {
@@ -122,7 +122,7 @@ export class VectorDocumentFormatter {
   }
 
   /**
-   * Format summary into Chroma documents (granular approach).
+   * Format summary into vector documents (granular approach).
    * Each summary field becomes a separate vector document.
    */
   static formatSummaryDocs(summary: StoredSummary): VectorDocument[] {
@@ -189,7 +189,7 @@ export class VectorDocumentFormatter {
   }
 
   /**
-   * Format user prompt into a single Chroma document.
+   * Format user prompt into a single vector document.
    */
   static formatUserPromptDoc(prompt: StoredUserPrompt): VectorDocument {
     return {
