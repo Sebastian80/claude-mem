@@ -47,7 +47,7 @@ export class ChromaServerManager {
 
   constructor(port?: number, dataDir?: string) {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    this.port = port ?? parseInt(settings.CLAUDE_MEM_CHROMA_PORT, 10) || 8100;
+    this.port = port ?? (parseInt(settings.CLAUDE_MEM_CHROMA_PORT, 10) || 8100);
     this.dataDir = dataDir ?? VECTOR_DB_DIR;
 
     // Ensure data directory exists

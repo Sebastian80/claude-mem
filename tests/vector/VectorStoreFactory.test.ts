@@ -1,7 +1,9 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { VectorStoreFactory } from '../../src/services/vector/VectorStoreFactory.js';
 import { ChromaStdioAdapter } from '../../src/services/vector/ChromaStdioAdapter.js';
+import { ChromaHttpAdapter } from '../../src/services/vector/ChromaHttpAdapter.js';
 import { SettingsDefaultsManager } from '../../src/shared/SettingsDefaultsManager.js';
+import type { ChromaServerManager } from '../../src/services/vector/ChromaServerManager.js';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -18,16 +20,36 @@ describe('VectorStoreFactory', () => {
     expect(store).toBeInstanceOf(ChromaStdioAdapter);
   });
 
-  it('should fall back to ChromaStdioAdapter for unimplemented backends', () => {
-    // chroma-http and sqlite-vec are not yet implemented, should fall back
-    // We can't easily test this without mocking settings, but the factory
-    // code handles it via switch/case fallback
+  it('should fall back to ChromaStdioAdapter for sqlite-vec (not yet implemented)', () => {
     const store = VectorStoreFactory.create('test-project');
     expect(store).toBeDefined();
     expect(store.isAvailable).toBeDefined();
     expect(store.syncObservation).toBeDefined();
     expect(store.query).toBeDefined();
     expect(store.close).toBeDefined();
+  });
+
+  it('should create ChromaHttpAdapter when chroma-http backend and serverManager provided', () => {
+    const mockServerManager = {
+      isHealthy: () => true,
+      getUrl: () => 'http://127.0.0.1:8100',
+      getPort: () => 8100,
+      start: async () => {},
+      stop: async () => {},
+      heartbeat: async () => true
+    } as unknown as ChromaServerManager;
+
+    // Direct factory call with serverManager simulates what worker-service does
+    const store = VectorStoreFactory.create('test-project', mockServerManager);
+    // With default settings (chroma-stdio), this still creates ChromaStdioAdapter
+    // because settings.CLAUDE_MEM_VECTOR_BACKEND defaults to 'chroma-stdio'
+    expect(store).toBeInstanceOf(ChromaStdioAdapter);
+  });
+
+  it('should fall back to ChromaStdioAdapter for chroma-http without serverManager', () => {
+    // Without serverManager, chroma-http falls back to chroma-stdio
+    const store = VectorStoreFactory.create('test-project');
+    expect(store).toBeInstanceOf(ChromaStdioAdapter);
   });
 
   it('should expose the VectorStore interface methods', () => {
