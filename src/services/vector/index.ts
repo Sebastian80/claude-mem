@@ -21,10 +21,6 @@ export { VectorStoreFactory } from './VectorStoreFactory.js';
 
 // Adapters
 export { ChromaStdioAdapter } from './ChromaStdioAdapter.js';
-export { ChromaHttpAdapter } from './ChromaHttpAdapter.js';
-
-// Server management
-export { ChromaServerManager } from './ChromaServerManager.js';
 
 // Shared utilities
 export { VectorDocumentFormatter } from './VectorDocumentFormatter.js';

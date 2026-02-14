@@ -13,7 +13,6 @@ import { SessionSearch } from '../sqlite/SessionSearch.js';
 import { VectorStoreFactory } from '../vector/VectorStoreFactory.js';
 import { logger } from '../../utils/logger.js';
 import type { VectorStore } from '../vector/VectorStore.js';
-import type { ChromaServerManager } from '../vector/ChromaServerManager.js';
 import type { DBSession } from '../worker-types.js';
 
 export class DatabaseManager {
@@ -25,14 +24,11 @@ export class DatabaseManager {
    * Initialize database connection (once, stays open).
    *
    * @param options.vectorStore - Optional pre-configured VectorStore
-   * @param options.chromaServerManager - Optional ChromaServerManager for chroma-http backend
    *
    * If no vectorStore is provided, VectorStoreFactory creates one from settings.
-   * The chromaServerManager is passed through to the factory for chroma-http backend.
    */
   async initialize(options?: {
     vectorStore?: VectorStore;
-    chromaServerManager?: ChromaServerManager;
   }): Promise<void> {
     // Open database connection (ONCE)
     this.sessionStore = new SessionStore();
@@ -40,7 +36,7 @@ export class DatabaseManager {
 
     // Use provided VectorStore or create from settings
     this.vectorStore = options?.vectorStore
-      ?? VectorStoreFactory.create('claude-mem', options?.chromaServerManager);
+      ?? VectorStoreFactory.create('claude-mem');
 
     logger.info('DB', 'Database initialized');
   }

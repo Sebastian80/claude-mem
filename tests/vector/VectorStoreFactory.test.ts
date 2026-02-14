@@ -1,32 +1,15 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import { VectorStoreFactory } from '../../src/services/vector/VectorStoreFactory.js';
 import { ChromaStdioAdapter } from '../../src/services/vector/ChromaStdioAdapter.js';
-import { ChromaHttpAdapter } from '../../src/services/vector/ChromaHttpAdapter.js';
 import { SettingsDefaultsManager } from '../../src/shared/SettingsDefaultsManager.js';
-import type { ChromaServerManager } from '../../src/services/vector/ChromaServerManager.js';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
 describe('VectorStoreFactory', () => {
-  it('should fall back to ChromaStdioAdapter when no serverManager provided', () => {
-    // Default is 'chroma-http', but without a serverManager it falls back to stdio
+  it('should create ChromaStdioAdapter by default', () => {
     const store = VectorStoreFactory.create('test-project');
     expect(store).toBeInstanceOf(ChromaStdioAdapter);
-  });
-
-  it('should create ChromaHttpAdapter when serverManager provided', () => {
-    const mockServerManager = {
-      isHealthy: () => true,
-      getUrl: () => 'http://127.0.0.1:8100',
-      getPort: () => 8100,
-      start: async () => {},
-      stop: async () => {},
-      heartbeat: async () => true
-    } as unknown as ChromaServerManager;
-
-    const store = VectorStoreFactory.create('test-project', mockServerManager);
-    expect(store).toBeInstanceOf(ChromaHttpAdapter);
   });
 
   it('should fall back to ChromaStdioAdapter for sqlite-vec (not yet implemented)', () => {
@@ -55,9 +38,9 @@ describe('VectorStoreFactory', () => {
 });
 
 describe('VectorStoreFactory with CLAUDE_MEM_VECTOR_BACKEND setting', () => {
-  it('should have CLAUDE_MEM_VECTOR_BACKEND default to chroma-http', () => {
+  it('should have CLAUDE_MEM_VECTOR_BACKEND default to chroma-stdio', () => {
     const defaults = SettingsDefaultsManager.getAllDefaults();
-    expect(defaults.CLAUDE_MEM_VECTOR_BACKEND).toBe('chroma-http');
+    expect(defaults.CLAUDE_MEM_VECTOR_BACKEND).toBe('chroma-stdio');
   });
 
   it('should read CLAUDE_MEM_VECTOR_BACKEND from settings file', () => {

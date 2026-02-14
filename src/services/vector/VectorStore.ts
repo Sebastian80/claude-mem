@@ -2,7 +2,7 @@
  * VectorStore: Abstract interface for vector database operations
  *
  * Decouples consumers from specific vector DB implementations.
- * Current backends: ChromaStdioAdapter (MCP subprocess), ChromaHttpAdapter (shared HTTP server)
+ * Current backends: ChromaStdioAdapter (MCP subprocess)
  * Future: sqlite-vec (in-process, no external dependencies)
  */
 
@@ -10,7 +10,7 @@ import type { ParsedObservation, ParsedSummary } from '../../sdk/parser.js';
 
 // --- Backend configuration ---
 
-export type VectorBackend = 'chroma-stdio' | 'chroma-http' | 'sqlite-vec';
+export type VectorBackend = 'chroma-stdio' | 'sqlite-vec';
 
 // --- Document types ---
 
