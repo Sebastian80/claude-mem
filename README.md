@@ -14,7 +14,7 @@ Claude-mem gives Claude Code persistent memory across sessions. It runs as a bac
 
 1. **Hooks** capture tool usage and conversation events during your Claude Code session
 2. **Worker** (Express API on localhost:37777) processes events asynchronously using your chosen AI provider
-3. **Storage** persists compressed observations in SQLite (`~/.claude-mem/claude-mem.db`), with optional Chroma vector search
+3. **Storage** persists compressed observations in SQLite (`~/.claude-mem/claude-mem.db`), with optional ChromaDB vector search via shared HTTP server
 4. **Context injection** retrieves relevant past observations at session start via the SessionStart hook
 5. **MCP tools** let Claude search your memory database mid-session (`search`, `timeline`, `get_observations`, `save_memory`)
 
@@ -83,6 +83,7 @@ These fixes were developed by [JillVernus](https://github.com/JillVernus/claude-
 | **Graceful Process Termination** | `forceKillProcess()` sends SIGKILL immediately — risks chroma-mcp SQLite corruption (journal_mode=delete) | `gracefulKillProcess()`: SIGTERM → poll for exit → SIGKILL fallback |
 | **Orphaned Collection Cleanup** | Killed chroma-mcp may create orphaned collections that block WAL purge (ChromaDB bug #2605) | Reconciliation loop in `ensureCollection()` deletes non-`cm__*` collections on every connect |
 | **Embedding Retention Cap** | ChromaDB loads all HNSW indexes into RAM with no eviction — unbounded memory growth | `CLAUDE_MEM_CHROMA_MAX_ITEMS` setting (default 50K) prunes oldest embeddings; SQLite data and FTS5 search unaffected |
+| **Shared HTTP Vector Store** | Per-session MCP subprocesses each consume ~550MB — N sessions = N×550MB | Shared ChromaDB HTTP server with client-side embedding via VectorStore abstraction — O(1) memory regardless of session count |
 
 ### Re-applied Patches (lost in upstream merges)
 
@@ -142,9 +143,7 @@ These issues were also fixed upstream, so the fork patches are no longer the onl
 
 ## Version Format
 
-Fork versions follow the format `{upstream}-ser.{patch}`:
-- `9.1.1-ser.2` = Based on upstream v9.1.1, fork patch version 2 (project backfill fix)
-- `9.1.1-ser.1` = Based on upstream v9.1.1, fork patch version 1 (initial fork)
+Independent semver starting from v0.1.0. Previous versions followed `{upstream}-ser.{patch}` format (e.g., `9.1.1-ser.5`).
 
 ---
 
