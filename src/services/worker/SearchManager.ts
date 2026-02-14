@@ -16,7 +16,7 @@
 import { basename } from 'path';
 import { SessionSearch } from '../sqlite/SessionSearch.js';
 import { SessionStore } from '../sqlite/SessionStore.js';
-import { ChromaSync } from '../sync/ChromaSync.js';
+import type { VectorStore } from '../vector/VectorStore.js';
 import { FormattingService } from './FormattingService.js';
 import { TimelineService } from './TimelineService.js';
 import type { TimelineItem } from './TimelineService.js';
@@ -39,7 +39,7 @@ export class SearchManager {
   constructor(
     private sessionSearch: SessionSearch,
     private sessionStore: SessionStore,
-    private chromaSync: ChromaSync,
+    private vectorStore: VectorStore | null,
     private formatter: FormattingService,
     private timelineService: TimelineService
   ) {
@@ -47,13 +47,13 @@ export class SearchManager {
     this.orchestrator = new SearchOrchestrator(
       sessionSearch,
       sessionStore,
-      chromaSync
+      vectorStore
     );
     this.timelineBuilder = new TimelineBuilder();
   }
 
   /**
-   * Query Chroma vector database via ChromaSync
+   * Query vector store for semantic search
    * @deprecated Use orchestrator.search() instead
    */
   private async queryChroma(
@@ -61,7 +61,10 @@ export class SearchManager {
     limit: number,
     whereFilter?: Record<string, any>
   ): Promise<{ ids: number[]; distances: number[]; metadatas: any[] }> {
-    return await this.chromaSync.queryChroma(query, limit, whereFilter);
+    if (!this.vectorStore) {
+      return { ids: [], distances: [], metadatas: [] };
+    }
+    return await this.vectorStore.query(query, limit, whereFilter);
   }
 
   /**
@@ -170,7 +173,7 @@ export class SearchManager {
       }
     }
     // PATH 2: CHROMA SEMANTIC SEARCH (query text + Chroma available)
-    else if (this.chromaSync) {
+    else if (this.vectorStore) {
       let chromaSucceeded = false;
       logger.debug('SEARCH', 'Using ChromaDB semantic search', { typeFilter: type || 'all' });
 
@@ -413,7 +416,7 @@ export class SearchManager {
       // Step 1: Search for observations
       let results: ObservationSearchResult[] = [];
 
-      if (this.chromaSync) {
+      if (this.vectorStore) {
         try {
           logger.debug('SEARCH', 'Using hybrid semantic search for timeline query', {});
           const chromaResults = await this.queryChroma(query, 100);
@@ -663,7 +666,7 @@ export class SearchManager {
     let results: ObservationSearchResult[] = [];
 
     // Search for decision-type observations
-    if (this.chromaSync) {
+    if (this.vectorStore) {
       try {
         if (query) {
           // Semantic search filtered to decision type
@@ -737,7 +740,7 @@ export class SearchManager {
     let results: ObservationSearchResult[] = [];
 
     // Search for change-type observations and change-related concepts
-    if (this.chromaSync) {
+    if (this.vectorStore) {
       try {
         logger.debug('SEARCH', 'Using hybrid search for change-related observations', {});
 
@@ -820,7 +823,7 @@ export class SearchManager {
     let results: ObservationSearchResult[] = [];
 
     // Search for how-it-works concept observations
-    if (this.chromaSync) {
+    if (this.vectorStore) {
       logger.debug('SEARCH', 'Using metadata-first + semantic ranking for how-it-works', {});
       const metadataResults = this.sessionSearch.findByConcept('how-it-works', filters);
 
@@ -877,7 +880,7 @@ export class SearchManager {
     let results: ObservationSearchResult[] = [];
 
     // Vector-first search via ChromaDB
-    if (this.chromaSync) {
+    if (this.vectorStore) {
       logger.debug('SEARCH', 'Using hybrid semantic search (Chroma + SQLite)', {});
 
       // Step 1: Chroma semantic search (top 100)
@@ -934,7 +937,7 @@ export class SearchManager {
     let results: SessionSummarySearchResult[] = [];
 
     // Vector-first search via ChromaDB
-    if (this.chromaSync) {
+    if (this.vectorStore) {
       logger.debug('SEARCH', 'Using hybrid semantic search for sessions', {});
 
       // Step 1: Chroma semantic search (top 100)
@@ -991,7 +994,7 @@ export class SearchManager {
     let results: UserPromptSearchResult[] = [];
 
     // Vector-first search via ChromaDB
-    if (this.chromaSync) {
+    if (this.vectorStore) {
       logger.debug('SEARCH', 'Using hybrid semantic search for user prompts', {});
 
       // Step 1: Chroma semantic search (top 100)
@@ -1048,7 +1051,7 @@ export class SearchManager {
     let results: ObservationSearchResult[] = [];
 
     // Metadata-first, semantic-enhanced search
-    if (this.chromaSync) {
+    if (this.vectorStore) {
       logger.debug('SEARCH', 'Using metadata-first + semantic ranking for concept search', {});
 
       // Step 1: SQLite metadata filter (get all IDs with this concept)
@@ -1119,7 +1122,7 @@ export class SearchManager {
     let sessions: SessionSummarySearchResult[] = [];
 
     // Metadata-first, semantic-enhanced search for observations
-    if (this.chromaSync) {
+    if (this.vectorStore) {
       logger.debug('SEARCH', 'Using metadata-first + semantic ranking for file search', {});
 
       // Step 1: SQLite metadata filter (get all results with this file)
@@ -1239,7 +1242,7 @@ export class SearchManager {
     let results: ObservationSearchResult[] = [];
 
     // Metadata-first, semantic-enhanced search
-    if (this.chromaSync) {
+    if (this.vectorStore) {
       logger.debug('SEARCH', 'Using metadata-first + semantic ranking for type search', {});
 
       // Step 1: SQLite metadata filter (get all IDs with this type)
@@ -1647,7 +1650,7 @@ export class SearchManager {
     let results: ObservationSearchResult[] = [];
 
     // Use hybrid search if available
-    if (this.chromaSync) {
+    if (this.vectorStore) {
       logger.debug('SEARCH', 'Using hybrid semantic search for timeline query', {});
       const chromaResults = await this.queryChroma(query, 100);
       logger.debug('SEARCH', 'Chroma returned semantic matches for timeline', { matchCount: chromaResults.ids.length });

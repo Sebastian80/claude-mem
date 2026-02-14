@@ -11,7 +11,7 @@
 
 import { SessionSearch } from '../../sqlite/SessionSearch.js';
 import { SessionStore } from '../../sqlite/SessionStore.js';
-import { ChromaSync } from '../../sync/ChromaSync.js';
+import type { VectorStore } from '../../vector/VectorStore.js';
 
 import { ChromaSearchStrategy } from './strategies/ChromaSearchStrategy.js';
 import { SQLiteSearchStrategy } from './strategies/SQLiteSearchStrategy.js';
@@ -51,14 +51,14 @@ export class SearchOrchestrator {
   constructor(
     private sessionSearch: SessionSearch,
     private sessionStore: SessionStore,
-    private chromaSync: ChromaSync | null
+    private vectorStore: VectorStore | null
   ) {
     // Initialize strategies
     this.sqliteStrategy = new SQLiteSearchStrategy(sessionSearch);
 
-    if (chromaSync) {
-      this.chromaStrategy = new ChromaSearchStrategy(chromaSync, sessionStore);
-      this.hybridStrategy = new HybridSearchStrategy(chromaSync, sessionStore, sessionSearch);
+    if (vectorStore) {
+      this.chromaStrategy = new ChromaSearchStrategy(vectorStore, sessionStore);
+      this.hybridStrategy = new HybridSearchStrategy(vectorStore, sessionStore, sessionSearch);
     }
 
     this.resultFormatter = new ResultFormatter();
@@ -285,6 +285,6 @@ export class SearchOrchestrator {
    * Check if Chroma is available
    */
   isChromaAvailable(): boolean {
-    return !!this.chromaSync;
+    return !!this.vectorStore;
   }
 }

@@ -20,7 +20,7 @@ import {
   SessionSummarySearchResult,
   UserPromptSearchResult
 } from '../types.js';
-import { ChromaSync } from '../../../sync/ChromaSync.js';
+import type { VectorStore } from '../../../vector/VectorStore.js';
 import { SessionStore } from '../../../sqlite/SessionStore.js';
 import { logger } from '../../../../utils/logger.js';
 
@@ -28,15 +28,15 @@ export class ChromaSearchStrategy extends BaseSearchStrategy implements SearchSt
   readonly name = 'chroma';
 
   constructor(
-    private chromaSync: ChromaSync,
+    private vectorStore: VectorStore,
     private sessionStore: SessionStore
   ) {
     super();
   }
 
   canHandle(options: StrategySearchOptions): boolean {
-    // Can handle when query text is provided and Chroma is available
-    return !!options.query && !!this.chromaSync;
+    // Can handle when query text is provided and vector store is available
+    return !!options.query && !!this.vectorStore;
   }
 
   async search(options: StrategySearchOptions): Promise<StrategySearchResult> {
@@ -68,8 +68,8 @@ export class ChromaSearchStrategy extends BaseSearchStrategy implements SearchSt
       const whereFilter = this.buildWhereFilter(searchType);
 
       // Step 1: Chroma semantic search
-      logger.debug('SEARCH', 'ChromaSearchStrategy: Querying Chroma', { query, searchType });
-      const chromaResults = await this.chromaSync.queryChroma(
+      logger.debug('SEARCH', 'ChromaSearchStrategy: Querying vector store', { query, searchType });
+      const chromaResults = await this.vectorStore.query(
         query,
         SEARCH_CONSTANTS.CHROMA_BATCH_SIZE,
         whereFilter
@@ -168,7 +168,7 @@ export class ChromaSearchStrategy extends BaseSearchStrategy implements SearchSt
   /**
    * Filter results by recency (90-day window)
    *
-   * IMPORTANT: ChromaSync.queryChroma() returns deduplicated `ids` (unique sqlite_ids)
+   * IMPORTANT: VectorStore.query() returns deduplicated `ids` (unique sqlite_ids)
    * but the `metadatas` array may contain multiple entries per sqlite_id (e.g., one
    * observation can have narrative + multiple facts as separate Chroma documents).
    *

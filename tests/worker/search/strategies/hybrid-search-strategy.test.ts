@@ -80,13 +80,13 @@ const mockSession: SessionSummarySearchResult = {
 
 describe('HybridSearchStrategy', () => {
   let strategy: HybridSearchStrategy;
-  let mockChromaSync: any;
+  let mockVectorStore: any;
   let mockSessionStore: any;
   let mockSessionSearch: any;
 
   beforeEach(() => {
-    mockChromaSync = {
-      queryChroma: mock(() => Promise.resolve({
+    mockVectorStore = {
+      query: mock(() => Promise.resolve({
         ids: [2, 1, 3], // Chroma returns in semantic relevance order
         distances: [0.1, 0.2, 0.3],
         metadatas: []
@@ -112,7 +112,7 @@ describe('HybridSearchStrategy', () => {
       }))
     };
 
-    strategy = new HybridSearchStrategy(mockChromaSync, mockSessionStore, mockSessionSearch);
+    strategy = new HybridSearchStrategy(mockVectorStore, mockSessionStore, mockSessionSearch);
   });
 
   describe('canHandle', () => {
@@ -196,7 +196,7 @@ describe('HybridSearchStrategy', () => {
       const result = await strategy.findByConcept('test-concept', options);
 
       expect(mockSessionSearch.findByConcept).toHaveBeenCalledWith('test-concept', expect.any(Object));
-      expect(mockChromaSync.queryChroma).toHaveBeenCalledWith('test-concept', expect.any(Number));
+      expect(mockVectorStore.query).toHaveBeenCalledWith('test-concept', expect.any(Number));
       expect(result.usedChroma).toBe(true);
       expect(result.fellBack).toBe(false);
       expect(result.strategy).toBe('hybrid');
@@ -221,7 +221,7 @@ describe('HybridSearchStrategy', () => {
     it('should only include observations that match both metadata and Chroma', async () => {
       // Metadata returns ids [1, 2, 3]
       // Chroma returns ids [2, 4, 5] (4 and 5 don't exist in metadata results)
-      mockChromaSync.queryChroma = mock(() => Promise.resolve({
+      mockVectorStore.query = mock(() => Promise.resolve({
         ids: [2, 4, 5],
         distances: [0.1, 0.2, 0.3],
         metadatas: []
@@ -248,11 +248,11 @@ describe('HybridSearchStrategy', () => {
       const result = await strategy.findByConcept('nonexistent-concept', options);
 
       expect(result.results.observations).toHaveLength(0);
-      expect(mockChromaSync.queryChroma).not.toHaveBeenCalled(); // Should short-circuit
+      expect(mockVectorStore.query).not.toHaveBeenCalled(); // Should short-circuit
     });
 
     it('should fall back to metadata-only on Chroma error', async () => {
-      mockChromaSync.queryChroma = mock(() => Promise.reject(new Error('Chroma failed')));
+      mockVectorStore.query = mock(() => Promise.reject(new Error('Chroma failed')));
 
       const options: StrategySearchOptions = {
         limit: 10
@@ -275,7 +275,7 @@ describe('HybridSearchStrategy', () => {
       const result = await strategy.findByType('decision', options);
 
       expect(mockSessionSearch.findByType).toHaveBeenCalledWith('decision', expect.any(Object));
-      expect(mockChromaSync.queryChroma).toHaveBeenCalled();
+      expect(mockVectorStore.query).toHaveBeenCalled();
       expect(result.usedChroma).toBe(true);
     });
 
@@ -288,11 +288,11 @@ describe('HybridSearchStrategy', () => {
 
       expect(mockSessionSearch.findByType).toHaveBeenCalledWith(['decision', 'bugfix'], expect.any(Object));
       // Chroma query should use joined type string
-      expect(mockChromaSync.queryChroma).toHaveBeenCalledWith('decision, bugfix', expect.any(Number));
+      expect(mockVectorStore.query).toHaveBeenCalledWith('decision, bugfix', expect.any(Number));
     });
 
     it('should preserve Chroma ranking order for types', async () => {
-      mockChromaSync.queryChroma = mock(() => Promise.resolve({
+      mockVectorStore.query = mock(() => Promise.resolve({
         ids: [2, 1], // Chroma order
         distances: [0.1, 0.2],
         metadatas: []
@@ -308,7 +308,7 @@ describe('HybridSearchStrategy', () => {
     });
 
     it('should fall back on Chroma error', async () => {
-      mockChromaSync.queryChroma = mock(() => Promise.reject(new Error('Chroma unavailable')));
+      mockVectorStore.query = mock(() => Promise.reject(new Error('Chroma unavailable')));
 
       const options: StrategySearchOptions = {
         limit: 10
@@ -361,7 +361,7 @@ describe('HybridSearchStrategy', () => {
     });
 
     it('should apply semantic ranking only to observations', async () => {
-      mockChromaSync.queryChroma = mock(() => Promise.resolve({
+      mockVectorStore.query = mock(() => Promise.resolve({
         ids: [2, 1], // Chroma ranking for observations
         distances: [0.1, 0.2],
         metadatas: []
@@ -395,7 +395,7 @@ describe('HybridSearchStrategy', () => {
     });
 
     it('should fall back on Chroma error', async () => {
-      mockChromaSync.queryChroma = mock(() => Promise.reject(new Error('Chroma down')));
+      mockVectorStore.query = mock(() => Promise.reject(new Error('Chroma down')));
 
       const options: StrategySearchOptions = {
         limit: 10

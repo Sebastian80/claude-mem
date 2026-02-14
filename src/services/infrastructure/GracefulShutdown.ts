@@ -29,6 +29,10 @@ export interface CloseableDatabase {
   close(): Promise<void>;
 }
 
+export interface StoppableServer {
+  stop(): Promise<void>;
+}
+
 /**
  * Configuration for graceful shutdown
  */
@@ -37,6 +41,7 @@ export interface GracefulShutdownConfig {
   sessionManager: ShutdownableService;
   mcpClient?: CloseableClient;
   dbManager?: CloseableDatabase;
+  chromaServerManager?: StoppableServer;
 }
 
 /**
@@ -73,9 +78,15 @@ export async function performGracefulShutdown(config: GracefulShutdownConfig): P
       logger.info('SYSTEM', 'MCP client closed');
     }
 
-    // STEP 5: Close database connection (includes ChromaSync cleanup)
+    // STEP 5: Close database connection (includes vector store cleanup)
     if (config.dbManager) {
       await config.dbManager.close();
+    }
+
+    // STEP 5.5: Stop ChromaDB HTTP server (after database close, before force-kill)
+    if (config.chromaServerManager) {
+      await config.chromaServerManager.stop();
+      logger.info('SYSTEM', 'ChromaDB HTTP server stopped');
     }
   } catch (error) {
     logger.error('SYSTEM', 'Error during graceful close, proceeding to force kill', {}, error as Error);

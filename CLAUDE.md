@@ -24,7 +24,7 @@ This is the **Sebastian80 fork** of claude-mem (upstream: thedotmack/claude-mem)
 
 **Search Skill** (`plugin/skills/mem-search/SKILL.md`) - HTTP API for searching past work, auto-invoked when users ask about history
 
-**Chroma** (`src/services/sync/ChromaSync.ts`) - Vector embeddings for semantic search
+**Vector Store** (`src/services/vector/`) - Vector embeddings for semantic search (ChromaDB HTTP or stdio backends)
 
 **Viewer UI** (`src/ui/viewer/`) - React interface at http://localhost:37777, built to `plugin/ui/viewer.html`
 

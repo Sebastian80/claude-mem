@@ -136,6 +136,9 @@ export class WorkerService {
   // Periodic recovery cleanup function (Phase 4 of Stuck Message Recovery)
   private stopPeriodicRecovery: (() => void) | null = null;
 
+  // ChromaDB HTTP server manager (chroma-http backend only)
+  private chromaServerManager: import('./vector/ChromaServerManager.js').ChromaServerManager | null = null;
+
   constructor() {
     // Initialize the promise that will resolve when background initialization completes
     this.initializationComplete = new Promise((resolve) => {
@@ -281,7 +284,20 @@ export class WorkerService {
       ModeManager.getInstance().loadMode(modeId);
       logger.info('SYSTEM', `Mode loaded: ${modeId}`);
 
-      await this.dbManager.initialize();
+      // Start ChromaDB HTTP server if chroma-http backend is selected
+      const vectorBackend = settings.CLAUDE_MEM_VECTOR_BACKEND;
+      if (vectorBackend === 'chroma-http') {
+        const { ChromaServerManager } = await import('./vector/ChromaServerManager.js');
+        this.chromaServerManager = new ChromaServerManager();
+        await this.chromaServerManager.start();
+        logger.info('SYSTEM', 'ChromaDB HTTP server started', {
+          port: this.chromaServerManager.getPort()
+        });
+      }
+
+      await this.dbManager.initialize({
+        chromaServerManager: this.chromaServerManager ?? undefined
+      });
 
       // Recover stuck messages from previous crashes
       const { PendingMessageStore } = await import('./sqlite/PendingMessageStore.js');
@@ -295,10 +311,11 @@ export class WorkerService {
       // Initialize search services
       const formattingService = new FormattingService();
       const timelineService = new TimelineService();
+      const vectorStore = this.dbManager.getVectorStore();
       const searchManager = new SearchManager(
         this.dbManager.getSessionSearch(),
         this.dbManager.getSessionStore(),
-        this.dbManager.getChromaSync(),
+        vectorStore,
         formattingService,
         timelineService
       );
@@ -693,7 +710,8 @@ export class WorkerService {
       server: this.server.getHttpServer(),
       sessionManager: this.sessionManager,
       mcpClient: this.mcpClient,
-      dbManager: this.dbManager
+      dbManager: this.dbManager,
+      chromaServerManager: this.chromaServerManager ?? undefined
     });
   }
 

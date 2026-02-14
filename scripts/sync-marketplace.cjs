@@ -134,6 +134,21 @@ try {
     { stdio: 'inherit' }
   );
 
+  // Install native dependencies in cache directory (onnxruntime-node cannot
+  // be bundled by esbuild and must be resolved from node_modules at runtime)
+  const cachePackageJson = path.join(CACHE_VERSION_PATH, 'package.json');
+  if (existsSync(cachePackageJson)) {
+    const cachePkg = JSON.parse(readFileSync(cachePackageJson, 'utf-8'));
+    const hasDeps = cachePkg.dependencies && Object.keys(cachePkg.dependencies).length > 0;
+    if (hasDeps) {
+      console.log('Installing native dependencies in cache folder...');
+      execSync(
+        `cd "${CACHE_VERSION_PATH}" && npm install --omit=dev`,
+        { stdio: 'inherit' }
+      );
+    }
+  }
+
   // Update installed_plugins.json to point to new version
   const installedPluginsPath = path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json');
   if (existsSync(installedPluginsPath)) {

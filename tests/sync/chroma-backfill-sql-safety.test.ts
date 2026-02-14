@@ -1,7 +1,7 @@
 /**
- * ChromaSync Backfill SQL Safety Tests
+ * Backfill SQL Safety Tests
  *
- * Verifies that the parameterized exclusion pattern used in ensureBackfilled()
+ * Verifies that the parameterized exclusion pattern used in BackfillService
  * correctly excludes IDs via bound parameters, and that the Number coercion
  * defense filters non-numeric metadata values.
  *
@@ -10,8 +10,8 @@
  * - Validates parameterized NOT IN clauses against real data
  *
  * Sources:
- * - ChromaSync.ensureBackfilled() exclusion pattern
- * - ChromaSync.getExistingChromaIds() Number coercion
+ * - BackfillService exclusion pattern
+ * - ChromaStdioAdapter.getExistingIds() Number coercion
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
@@ -44,7 +44,7 @@ describe('Backfill SQL Parameterization', () => {
   });
 
   it('should exclude IDs using parameterized NOT IN clause', () => {
-    // Replicate the exact pattern from ChromaSync.ensureBackfilled():
+    // Replicate the exact pattern from BackfillService.backfillObservations():
     //   existingObsIds.map(() => '?').join(',')
     //   .all(this.project, ...existingObsIds)
     const existingObsIds = [1, 3, 5];

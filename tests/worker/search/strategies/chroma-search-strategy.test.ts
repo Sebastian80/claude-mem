@@ -51,14 +51,14 @@ const mockPrompt: UserPromptSearchResult = {
 
 describe('ChromaSearchStrategy', () => {
   let strategy: ChromaSearchStrategy;
-  let mockChromaSync: any;
+  let mockVectorStore: any;
   let mockSessionStore: any;
 
   beforeEach(() => {
     const recentEpoch = Date.now() - 1000 * 60 * 60 * 24; // 1 day ago (within 90-day window)
 
-    mockChromaSync = {
-      queryChroma: mock(() => Promise.resolve({
+    mockVectorStore = {
+      query: mock(() => Promise.resolve({
         ids: [1, 2, 3],
         distances: [0.1, 0.2, 0.3],
         metadatas: [
@@ -75,7 +75,7 @@ describe('ChromaSearchStrategy', () => {
       getUserPromptsByIds: mock(() => [mockPrompt])
     };
 
-    strategy = new ChromaSearchStrategy(mockChromaSync, mockSessionStore);
+    strategy = new ChromaSearchStrategy(mockVectorStore, mockSessionStore);
   });
 
   describe('canHandle', () => {
@@ -115,7 +115,7 @@ describe('ChromaSearchStrategy', () => {
 
       await strategy.search(options);
 
-      expect(mockChromaSync.queryChroma).toHaveBeenCalledWith(
+      expect(mockVectorStore.query).toHaveBeenCalledWith(
         'test query',
         100, // CHROMA_BATCH_SIZE
         undefined // no where filter for 'all'
@@ -176,7 +176,7 @@ describe('ChromaSearchStrategy', () => {
 
       await strategy.search(options);
 
-      expect(mockChromaSync.queryChroma).toHaveBeenCalledWith(
+      expect(mockVectorStore.query).toHaveBeenCalledWith(
         'test query',
         100,
         { doc_type: 'observation' }
@@ -191,7 +191,7 @@ describe('ChromaSearchStrategy', () => {
 
       await strategy.search(options);
 
-      expect(mockChromaSync.queryChroma).toHaveBeenCalledWith(
+      expect(mockVectorStore.query).toHaveBeenCalledWith(
         'test query',
         100,
         { doc_type: 'session_summary' }
@@ -206,7 +206,7 @@ describe('ChromaSearchStrategy', () => {
 
       await strategy.search(options);
 
-      expect(mockChromaSync.queryChroma).toHaveBeenCalledWith(
+      expect(mockVectorStore.query).toHaveBeenCalledWith(
         'test query',
         100,
         { doc_type: 'user_prompt' }
@@ -223,11 +223,11 @@ describe('ChromaSearchStrategy', () => {
       expect(result.results.observations).toHaveLength(0);
       expect(result.results.sessions).toHaveLength(0);
       expect(result.results.prompts).toHaveLength(0);
-      expect(mockChromaSync.queryChroma).not.toHaveBeenCalled();
+      expect(mockVectorStore.query).not.toHaveBeenCalled();
     });
 
     it('should return empty result when Chroma returns no matches', async () => {
-      mockChromaSync.queryChroma = mock(() => Promise.resolve({
+      mockVectorStore.query = mock(() => Promise.resolve({
         ids: [],
         distances: [],
         metadatas: []
@@ -246,7 +246,7 @@ describe('ChromaSearchStrategy', () => {
     it('should filter out old results (beyond 90-day window)', async () => {
       const oldEpoch = Date.now() - 1000 * 60 * 60 * 24 * 100; // 100 days ago
 
-      mockChromaSync.queryChroma = mock(() => Promise.resolve({
+      mockVectorStore.query = mock(() => Promise.resolve({
         ids: [1],
         distances: [0.1],
         metadatas: [
@@ -265,7 +265,7 @@ describe('ChromaSearchStrategy', () => {
     });
 
     it('should handle Chroma errors gracefully (returns usedChroma: false)', async () => {
-      mockChromaSync.queryChroma = mock(() => Promise.reject(new Error('Chroma connection failed')));
+      mockVectorStore.query = mock(() => Promise.reject(new Error('Chroma connection failed')));
 
       const options: StrategySearchOptions = {
         query: 'test query'
@@ -303,8 +303,8 @@ describe('ChromaSearchStrategy', () => {
       // The metadatas MUST be deduplicated/aligned to match the unique IDs
       const recentEpoch = Date.now() - 1000 * 60 * 60 * 24; // 1 day ago
 
-      mockChromaSync.queryChroma = mock(() => Promise.resolve({
-        // After deduplication in ChromaSync.queryChroma, ids should be [100, 200]
+      mockVectorStore.query = mock(() => Promise.resolve({
+        // After deduplication in VectorStore.query, ids should be [100, 200]
         // But metadatas array has 4 elements - THIS IS THE BUG
         ids: [100, 200],  // Deduplicated
         distances: [0.3, 0.4, 0.5, 0.6],  // Original 4 distances
@@ -349,7 +349,7 @@ describe('ChromaSearchStrategy', () => {
       // This simulates the actual bug condition
       const recentEpoch = Date.now() - 1000 * 60 * 60 * 24;
 
-      mockChromaSync.queryChroma = mock(() => Promise.resolve({
+      mockVectorStore.query = mock(() => Promise.resolve({
         ids: [100],  // Only 1 ID after deduplication
         distances: [0.3, 0.4, 0.5],  // 3 distances
         metadatas: [

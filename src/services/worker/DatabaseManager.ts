@@ -5,30 +5,42 @@
  * - Manage single database connection for worker lifetime
  * - Provide centralized access to SessionStore and SessionSearch
  * - High-level database operations
- * - ChromaSync integration
+ * - VectorStore integration
  */
 
 import { SessionStore } from '../sqlite/SessionStore.js';
 import { SessionSearch } from '../sqlite/SessionSearch.js';
-import { ChromaSync } from '../sync/ChromaSync.js';
+import { VectorStoreFactory } from '../vector/VectorStoreFactory.js';
 import { logger } from '../../utils/logger.js';
+import type { VectorStore } from '../vector/VectorStore.js';
+import type { ChromaServerManager } from '../vector/ChromaServerManager.js';
 import type { DBSession } from '../worker-types.js';
 
 export class DatabaseManager {
   private sessionStore: SessionStore | null = null;
   private sessionSearch: SessionSearch | null = null;
-  private chromaSync: ChromaSync | null = null;
+  private vectorStore: VectorStore | null = null;
 
   /**
-   * Initialize database connection (once, stays open)
+   * Initialize database connection (once, stays open).
+   *
+   * @param options.vectorStore - Optional pre-configured VectorStore
+   * @param options.chromaServerManager - Optional ChromaServerManager for chroma-http backend
+   *
+   * If no vectorStore is provided, VectorStoreFactory creates one from settings.
+   * The chromaServerManager is passed through to the factory for chroma-http backend.
    */
-  async initialize(): Promise<void> {
+  async initialize(options?: {
+    vectorStore?: VectorStore;
+    chromaServerManager?: ChromaServerManager;
+  }): Promise<void> {
     // Open database connection (ONCE)
     this.sessionStore = new SessionStore();
     this.sessionSearch = new SessionSearch();
 
-    // Initialize ChromaSync (lazy - connects on first search, not at startup)
-    this.chromaSync = new ChromaSync('claude-mem');
+    // Use provided VectorStore or create from settings
+    this.vectorStore = options?.vectorStore
+      ?? VectorStoreFactory.create('claude-mem', options?.chromaServerManager);
 
     logger.info('DB', 'Database initialized');
   }
@@ -37,10 +49,10 @@ export class DatabaseManager {
    * Close database connection and cleanup all resources
    */
   async close(): Promise<void> {
-    // Close ChromaSync first (terminates uvx/python processes)
-    if (this.chromaSync) {
-      await this.chromaSync.close();
-      this.chromaSync = null;
+    // Close VectorStore first (terminates subprocess/HTTP connections)
+    if (this.vectorStore) {
+      await this.vectorStore.close();
+      this.vectorStore = null;
     }
 
     if (this.sessionStore) {
@@ -75,13 +87,13 @@ export class DatabaseManager {
   }
 
   /**
-   * Get ChromaSync instance (throws if not initialized)
+   * Get VectorStore instance (throws if not initialized)
    */
-  getChromaSync(): ChromaSync {
-    if (!this.chromaSync) {
-      throw new Error('ChromaSync not initialized');
+  getVectorStore(): VectorStore {
+    if (!this.vectorStore) {
+      throw new Error('VectorStore not initialized');
     }
-    return this.chromaSync;
+    return this.vectorStore;
   }
 
   // REMOVED: cleanupOrphanedSessions - violates "EVERYTHING SHOULD SAVE ALWAYS"
