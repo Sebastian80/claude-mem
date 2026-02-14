@@ -244,7 +244,7 @@ export class ChromaServerManager {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 2000);
 
-      const response = await fetch(`http://127.0.0.1:${this.port}/api/v1/heartbeat`, {
+      const response = await fetch(`http://127.0.0.1:${this.port}/api/v2/heartbeat`, {
         signal: controller.signal
       });
 
