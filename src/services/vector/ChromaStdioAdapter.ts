@@ -420,6 +420,7 @@ export class ChromaStdioAdapter implements VectorStore {
         command: 'uvx',
         args: [
           '--python', pythonVersion,
+          '--with', 'chromadb<1',
           'chroma-mcp',
           '--client-type', 'persistent',
           '--data-dir', this.VECTOR_DB_DIR
