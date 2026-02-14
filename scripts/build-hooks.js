@@ -49,8 +49,10 @@ async function buildHooks() {
     }
     console.log('✓ Output directories ready');
 
-    // Generate plugin/package.json for cache directory dependency installation
-    // Note: bun:sqlite is a Bun built-in, no external dependencies needed for SQLite
+    // Generate plugin/package.json for runtime native dependencies.
+    // @chroma-core/default-embed uses onnxruntime-node for client-side embedding
+    // (all-MiniLM-L6-v2). Native .node binaries cannot be bundled by esbuild,
+    // so they must be installed via npm in the deployment directory.
     console.log('\n📦 Generating plugin package.json...');
     const pluginPackageJson = {
       name: 'claude-mem-plugin',
