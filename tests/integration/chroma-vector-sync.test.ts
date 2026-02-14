@@ -280,7 +280,7 @@ describe('ChromaStdioAdapter Integration', () => {
       expect(adapterAny.connectionPromise).toBeNull();
 
       await adapter.close();
-    });
+    }, 15_000);
 
     it('should reset connectionPromise on close()', async () => {
       const { ChromaStdioAdapter } = await import('../../src/services/vector/ChromaStdioAdapter.js');

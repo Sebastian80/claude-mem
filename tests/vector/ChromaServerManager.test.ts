@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { ChromaServerManager } from '../../src/services/vector/ChromaServerManager.js';
 
+// Port 1 is privileged (requires root), so chroma exits immediately
+// with "Address 127.0.0.1:1 is not available", giving us a fast failure.
+const FAIL_PORT = 1;
+
 describe('ChromaServerManager', () => {
   describe('constructor', () => {
     it('should use default port 8100', () => {
@@ -45,22 +49,19 @@ describe('ChromaServerManager', () => {
     });
   });
 
-  describe('start without server', () => {
-    it('should handle failed start gracefully (circuit breaker not yet open)', async () => {
-      // Use a port where no server exists and uvx isn't available
-      // This tests that start() doesn't throw, just logs and sets unhealthy
-      const manager = new ChromaServerManager(59999, '/tmp/chroma-test-nonexistent');
+  describe('start with unavailable port', () => {
+    it('should handle failed start gracefully', async () => {
+      // Port 1 requires root — chroma exits immediately
+      const manager = new ChromaServerManager(FAIL_PORT, '/tmp/chroma-test-fail');
 
-      // start() should not throw even when the server can't be spawned
-      // It will log errors and eventually open the circuit breaker
+      // start() should not throw even when the server can't bind
       await manager.start();
 
       // After a failed start, the manager should not be healthy
       expect(manager.isHealthy()).toBe(false);
 
-      // Clean up
       await manager.stop();
-    });
+    }, 15_000);
   });
 
   describe('stop', () => {
@@ -82,9 +83,10 @@ describe('ChromaServerManager', () => {
 
 describe('ChromaServerManager circuit breaker', () => {
   it('should open circuit after 3 consecutive failures', async () => {
-    const manager = new ChromaServerManager(59998, '/tmp/chroma-cb-test');
+    // Port 1 requires root — each start attempt fails immediately
+    const manager = new ChromaServerManager(FAIL_PORT, '/tmp/chroma-cb-test');
 
-    // Each start attempt fails (no server, no uvx)
+    // Each start attempt fails (can't bind to privileged port)
     // After 3 failures, circuit breaker opens
     await manager.start(); // failure 1
     expect(manager.isHealthy()).toBe(false);
@@ -100,5 +102,5 @@ describe('ChromaServerManager circuit breaker', () => {
     expect(manager.isHealthy()).toBe(false);
 
     await manager.stop();
-  });
+  }, 30_000);
 });

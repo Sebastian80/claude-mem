@@ -170,7 +170,8 @@ export class ChromaServerManager {
 
     this.process = spawn('uvx', [
       '--python', pythonVersion,
-      'chromadb', 'run',
+      '--from', 'chromadb',
+      'chroma', 'run',
       '--host', '127.0.0.1',
       '--port', String(this.port),
       '--path', this.dataDir
