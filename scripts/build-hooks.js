@@ -58,7 +58,12 @@ async function buildHooks() {
       private: true,
       description: 'Runtime dependencies for claude-mem bundled hooks',
       type: 'module',
-      dependencies: {},
+      scripts: {
+        postinstall: 'node scripts/postinstall.js'
+      },
+      dependencies: {
+        '@chroma-core/default-embed': packageJson.dependencies['@chroma-core/default-embed'] || '^0.1.9'
+      },
       engines: {
         node: '>=18.0.0',
         bun: '>=1.0.0'
@@ -92,7 +97,7 @@ async function buildHooks() {
       outfile: `${hooksDir}/${WORKER_SERVICE.name}.cjs`,
       minify: true,
       logLevel: 'error', // Suppress warnings (import.meta warning is benign)
-      external: ['bun:sqlite'],
+      external: ['bun:sqlite', 'onnxruntime-node'],
       define: {
         '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
       },
@@ -117,7 +122,7 @@ async function buildHooks() {
       outfile: `${hooksDir}/${MCP_SERVER.name}.cjs`,
       minify: true,
       logLevel: 'error',
-      external: ['bun:sqlite'],
+      external: ['bun:sqlite', 'onnxruntime-node'],
       define: {
         '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
       },
@@ -142,7 +147,7 @@ async function buildHooks() {
       outfile: `${hooksDir}/${CONTEXT_GENERATOR.name}.cjs`,
       minify: true,
       logLevel: 'error',
-      external: ['bun:sqlite'],
+      external: ['bun:sqlite', 'onnxruntime-node'],
       define: {
         '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
       }

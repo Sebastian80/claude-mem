@@ -5,12 +5,13 @@
  * ChromaDB server managed by ChromaServerManager. Replaces per-session MCP
  * subprocess model, reducing memory from N×550MB to 1×550MB.
  *
- * Embedding is handled server-side by ChromaDB's default model (all-MiniLM-L6-v2),
+ * Embedding is handled client-side by @chroma-core/default-embed (all-MiniLM-L6-v2),
  * matching the existing chroma-mcp behavior for index compatibility.
  */
 
 import { ChromaClient } from 'chromadb';
 import type { Metadata, Where } from 'chromadb';
+import { DefaultEmbeddingFunction } from '@chroma-core/default-embed';
 import { VectorDocumentFormatter, type StoredObservation, type StoredSummary, type StoredUserPrompt } from './VectorDocumentFormatter.js';
 import { identifyOrphanedCollections, identifyDocumentsToPrune } from './collection-utils.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
@@ -40,6 +41,7 @@ type ChromaCollection = Awaited<ReturnType<ChromaClient['getOrCreateCollection']
 export class ChromaHttpAdapter implements VectorStore {
   private client: ChromaClient;
   private collection: ChromaCollection | null = null;
+  private embeddingFunction: DefaultEmbeddingFunction;
   private project: string;
   private collectionName: string;
   private serverManager: ChromaServerManager;
@@ -48,6 +50,7 @@ export class ChromaHttpAdapter implements VectorStore {
     this.project = project;
     this.collectionName = `${COLLECTION_PREFIX}${project}`;
     this.serverManager = serverManager;
+    this.embeddingFunction = new DefaultEmbeddingFunction();
 
     const url = serverManager.getUrl();
     const [, host, portStr] = url.match(/http:\/\/([^:]+):(\d+)/) || [];
@@ -343,10 +346,9 @@ export class ChromaHttpAdapter implements VectorStore {
     if (this.collection) return this.collection;
 
     try {
-      // embeddingFunction: null → server handles embedding
       this.collection = await this.client.getOrCreateCollection({
         name: this.collectionName,
-        embeddingFunction: null
+        embeddingFunction: this.embeddingFunction
       });
 
       logger.debug('VECTOR', 'Collection ready', { collection: this.collectionName });
