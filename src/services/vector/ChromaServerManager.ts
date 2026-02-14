@@ -390,7 +390,7 @@ export class ChromaServerManager {
 
   /**
    * Get or create combined SSL certificate bundle for Zscaler/corporate proxy environments.
-   * Reused from ChromaSync implementation.
+   * Reused from ChromaStdioAdapter implementation.
    */
   private getCombinedCertPath(): string | undefined {
     const combinedCertPath = path.join(os.homedir(), '.claude-mem', 'combined_certs.pem');

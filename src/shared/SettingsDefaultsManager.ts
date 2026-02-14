@@ -161,7 +161,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_CHROMA_MAX_ITEMS: '50000',  // Cap at 50K source items (~200MB RAM). 0 = unlimited.
     CLAUDE_MEM_CHROMA_PORT: '8100',  // Default port for shared ChromaDB HTTP server
     // Vector Store Backend
-    CLAUDE_MEM_VECTOR_BACKEND: 'chroma-stdio',  // Default to MCP stdio subprocess
+    CLAUDE_MEM_VECTOR_BACKEND: 'chroma-http',  // Default to shared ChromaDB HTTP server
   };
 
   /**

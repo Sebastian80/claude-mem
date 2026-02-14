@@ -9,27 +9,13 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 describe('VectorStoreFactory', () => {
-  it('should create ChromaStdioAdapter for default settings', () => {
+  it('should fall back to ChromaStdioAdapter when no serverManager provided', () => {
+    // Default is 'chroma-http', but without a serverManager it falls back to stdio
     const store = VectorStoreFactory.create('test-project');
     expect(store).toBeInstanceOf(ChromaStdioAdapter);
   });
 
-  it('should create ChromaStdioAdapter for explicit chroma-stdio setting', () => {
-    // Default is 'chroma-stdio', so this should work with default settings
-    const store = VectorStoreFactory.create('test-project');
-    expect(store).toBeInstanceOf(ChromaStdioAdapter);
-  });
-
-  it('should fall back to ChromaStdioAdapter for sqlite-vec (not yet implemented)', () => {
-    const store = VectorStoreFactory.create('test-project');
-    expect(store).toBeDefined();
-    expect(store.isAvailable).toBeDefined();
-    expect(store.syncObservation).toBeDefined();
-    expect(store.query).toBeDefined();
-    expect(store.close).toBeDefined();
-  });
-
-  it('should create ChromaHttpAdapter when chroma-http backend and serverManager provided', () => {
+  it('should create ChromaHttpAdapter when serverManager provided', () => {
     const mockServerManager = {
       isHealthy: () => true,
       getUrl: () => 'http://127.0.0.1:8100',
@@ -39,17 +25,17 @@ describe('VectorStoreFactory', () => {
       heartbeat: async () => true
     } as unknown as ChromaServerManager;
 
-    // Direct factory call with serverManager simulates what worker-service does
     const store = VectorStoreFactory.create('test-project', mockServerManager);
-    // With default settings (chroma-stdio), this still creates ChromaStdioAdapter
-    // because settings.CLAUDE_MEM_VECTOR_BACKEND defaults to 'chroma-stdio'
-    expect(store).toBeInstanceOf(ChromaStdioAdapter);
+    expect(store).toBeInstanceOf(ChromaHttpAdapter);
   });
 
-  it('should fall back to ChromaStdioAdapter for chroma-http without serverManager', () => {
-    // Without serverManager, chroma-http falls back to chroma-stdio
+  it('should fall back to ChromaStdioAdapter for sqlite-vec (not yet implemented)', () => {
     const store = VectorStoreFactory.create('test-project');
-    expect(store).toBeInstanceOf(ChromaStdioAdapter);
+    expect(store).toBeDefined();
+    expect(store.isAvailable).toBeDefined();
+    expect(store.syncObservation).toBeDefined();
+    expect(store.query).toBeDefined();
+    expect(store.close).toBeDefined();
   });
 
   it('should expose the VectorStore interface methods', () => {
@@ -69,9 +55,9 @@ describe('VectorStoreFactory', () => {
 });
 
 describe('VectorStoreFactory with CLAUDE_MEM_VECTOR_BACKEND setting', () => {
-  it('should have CLAUDE_MEM_VECTOR_BACKEND in defaults', () => {
+  it('should have CLAUDE_MEM_VECTOR_BACKEND default to chroma-http', () => {
     const defaults = SettingsDefaultsManager.getAllDefaults();
-    expect(defaults.CLAUDE_MEM_VECTOR_BACKEND).toBe('chroma-stdio');
+    expect(defaults.CLAUDE_MEM_VECTOR_BACKEND).toBe('chroma-http');
   });
 
   it('should read CLAUDE_MEM_VECTOR_BACKEND from settings file', () => {
@@ -81,11 +67,11 @@ describe('VectorStoreFactory with CLAUDE_MEM_VECTOR_BACKEND setting', () => {
 
     try {
       writeFileSync(settingsPath, JSON.stringify({
-        CLAUDE_MEM_VECTOR_BACKEND: 'chroma-http'
+        CLAUDE_MEM_VECTOR_BACKEND: 'chroma-stdio'
       }));
 
       const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
-      expect(settings.CLAUDE_MEM_VECTOR_BACKEND).toBe('chroma-http');
+      expect(settings.CLAUDE_MEM_VECTOR_BACKEND).toBe('chroma-stdio');
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }

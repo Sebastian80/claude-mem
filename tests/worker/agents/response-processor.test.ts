@@ -42,8 +42,8 @@ let loggerSpies: ReturnType<typeof spyOn>[] = [];
 describe('ResponseProcessor', () => {
   // Mocks
   let mockStoreObservations: ReturnType<typeof mock>;
-  let mockChromaSyncObservation: ReturnType<typeof mock>;
-  let mockChromaSyncSummary: ReturnType<typeof mock>;
+  let mockVectorSyncObservation: ReturnType<typeof mock>;
+  let mockVectorSyncSummary: ReturnType<typeof mock>;
   let mockBroadcast: ReturnType<typeof mock>;
   let mockBroadcastProcessingStatus: ReturnType<typeof mock>;
   let mockDbManager: DatabaseManager;
@@ -66,8 +66,8 @@ describe('ResponseProcessor', () => {
       createdAtEpoch: 1700000000000,
     } as StorageResult));
 
-    mockChromaSyncObservation = mock(() => Promise.resolve());
-    mockChromaSyncSummary = mock(() => Promise.resolve());
+    mockVectorSyncObservation = mock(() => Promise.resolve());
+    mockVectorSyncSummary = mock(() => Promise.resolve());
 
     mockDbManager = {
       getSessionStore: () => ({
@@ -76,8 +76,8 @@ describe('ResponseProcessor', () => {
         getSessionById: mock(() => ({ memory_session_id: 'memory-session-456' })),  // FK fix (Issue #846)
       }),
       getVectorStore: () => ({
-        syncObservation: mockChromaSyncObservation,
-        syncSummary: mockChromaSyncSummary,
+        syncObservation: mockVectorSyncObservation,
+        syncSummary: mockVectorSyncSummary,
       }),
     } as unknown as DatabaseManager;
 

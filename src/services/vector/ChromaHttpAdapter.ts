@@ -178,7 +178,7 @@ export class ChromaHttpAdapter implements VectorStore {
 
       const result = await collection.query(queryArgs);
 
-      // Extract unique sqlite IDs from document IDs (same dedup logic as ChromaSync.queryChroma)
+      // Extract unique sqlite IDs from document IDs (same dedup logic as ChromaStdioAdapter.query)
       const ids: number[] = [];
       const docIds = result.ids[0] || [];
       for (const docId of docIds) {
