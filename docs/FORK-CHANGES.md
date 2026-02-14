@@ -3,10 +3,11 @@
 This document is a step-by-step guide for merging upstream releases into the Sebastian80 fork.
 Categories are ordered by severity (critical fixes first).
 
-**Current Version**: `0.1.0` (independent, based on upstream v9.1.1)
+**Current Version**: `0.2.1` (independent, based on upstream v9.1.1)
 **Previous Version Scheme**: `9.1.1-ser.1` through `9.1.1-ser.5`
 **Last Upstream Merge**: 2026-02-08
 **Recent Updates**:
+- `0.2.1`: Removed ChromaDB HTTP adapter, server manager, and embedding sidecar infrastructure. Dropped `chromadb` and `@chroma-core/default-embed` npm dependencies (-53 packages). Pinned `chromadb<1` to avoid Rust storage engine (sqlx) idle CPU spinning (111% → 0%). Default backend reverted to chroma-stdio. VectorStore abstraction preserved for future sqlite-vec backend.
 - `9.1.1-ser.5`: Security and reliability fixes — parameterized all SQL in ChromaSync backfill to prevent injection via Chroma metadata IDs, added Number() coercion as defense-in-depth, and worker now exits on background init failure instead of staying half-alive.
 - `9.1.1-ser.4`: Re-applied orphaned message fallback from upstream PR #937 (lost in JillVernus's v9.1.1 reconciliation merge). On session termination, orphaned queue items now cascade through Gemini → OpenAI → mark abandoned instead of aging through 3 retry cycles (~329s TIMEOUT_FAILED).
 - `9.1.1-ser.3`: Fixed ChromaSync duplicate subprocess spawning — concurrent `ensureConnection()` calls now share a single connection attempt via promise cache. Pre-existing upstream bug (PRs #993, #1065 still open).

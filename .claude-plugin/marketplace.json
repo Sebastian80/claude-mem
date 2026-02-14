@@ -4,16 +4,16 @@
     "name": "Sebastian80"
   },
   "metadata": {
-    "description": "Personal fork of claude-mem with shared HTTP vector store, stability enhancements, and process lifecycle hardening",
+    "description": "Personal fork of claude-mem with vector search, stability enhancements, and process lifecycle hardening",
     "homepage": "https://github.com/Sebastian80/claude-mem"
   },
   "plugins": [
     {
       "name": "claude-mem",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "source": "./plugin",
       "description": "Persistent memory system for Claude Code - with observation batching"
     }
   ],
-  "version": "0.2.0"
+  "version": "0.2.1"
 }
