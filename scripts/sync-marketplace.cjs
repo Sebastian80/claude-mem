@@ -99,6 +99,18 @@ try {
         );
         console.log('Updated root .claude-plugin/marketplace.json for full repo install');
       }
+
+      // Sync built plugin/ contents into the nested plugin/ subdirectory.
+      // Claude Code reads version from plugin/.claude-plugin/plugin.json
+      // (per "source": "./plugin" in marketplace.json), not the root copy.
+      const destPluginDir = path.join(INSTALLED_PATH, 'plugin');
+      if (existsSync(destPluginDir)) {
+        execSync(
+          `cp -r plugin/. "${destPluginDir}/"`,
+          { stdio: 'inherit' }
+        );
+        console.log('Updated nested plugin/ directory for full repo install');
+      }
     }
 
     console.log('Running npm install in marketplace...');
